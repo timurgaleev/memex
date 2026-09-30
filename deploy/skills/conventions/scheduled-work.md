@@ -14,15 +14,24 @@ start an isolated session that races the server for resources.
 # no durability, nothing to inspect afterwards.
 
 # Good: fire-and-forget submit with an idempotency key per cycle slot.
-# The queue dedupes long-running overlaps at the DB layer.
-ExecStart=/usr/local/bin/memrain jobs submit inbox-sweep \
-  --params '{"slot":"$(date -u +%Y-%m-%dT%H:%M)"}' \
-  --idempotency-key inbox-sweep:$(date -u +%Y-%m-%dT%H:%M)
+# The queue dedupes long-running overlaps at the DB layer. Keep the JSON in a
+# script: systemd unquotes ExecStart itself, so inline JSON quoting breaks.
+ExecStart=/usr/local/bin/submit-sweep.sh
 ```
 
-From MCP the same submit is `jobs_submit` with the handler name, params,
-and idempotency key. `memrain call jobs_submit '{...}'` works from any shell
-step.
+```bash
+#!/bin/sh
+# /usr/local/bin/submit-sweep.sh — <kind> must be a registered job handler
+# (`memrain call jobs_submit` refuses unknown kinds and lists the known ones).
+slot=$(date -u +%Y-%m-%dT%H:%M)
+exec docker exec deploy-memrain-1 bun run src/cli.ts call jobs_submit --args \
+  "{\"kind\":\"<kind>\",\"payload\":{\"slot\":\"$slot\"},\"idempotency_key\":\"<kind>:$slot\"}"
+```
+
+From MCP the same submit is `jobs_submit` with the handler kind, payload,
+and idempotency key. `memrain call jobs_submit --args '{...}'` works from any
+shell step (`memrain jobs submit <kind> --payload '<json>'` has no
+idempotency key).
 
 Note the brain's own maintenance (embedding backfill, link derivation,
 fact decay, synthesize/patterns) already runs inside the server's

@@ -24,10 +24,11 @@ aws secretsmanager put-secret-value \
   --secret-string '<new-token-from-dashboard>' \
   --profile <your-profile> --region <your-region>
 
-# EC2 — re-fetch + restart cloudflared:
+# EC2 — re-fetch + recreate cloudflared (a plain restart keeps the old
+# env; no -f, so the COMPOSE_FILE set in .env still applies):
 cd /opt/<project>
-bash deploy/secrets/fetch-secrets.sh
-docker compose --env-file .env -f deploy/docker-compose.yml restart cloudflared
+sudo bash deploy/secrets/fetch-secrets.sh
+sudo docker compose --env-file .env up -d --force-recreate cloudflared
 ```
 
 ## Ingress

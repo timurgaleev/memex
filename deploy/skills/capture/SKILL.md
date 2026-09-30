@@ -59,7 +59,6 @@ memrain capture --file ./notes/today.md
 echo "from a pipe" | memrain capture --stdin
 memrain capture "..." --slug daily/2026-05-21
 memrain capture "..." --type idea --source voice-whisper
-memrain capture "..." --quiet        # script-friendly: prints just the slug
 memrain capture "..." --json         # structured output for agents
 ```
 
@@ -82,7 +81,6 @@ captured:
   captured_at:   2026-05-21T04:15:00.000Z
 ```
 
-`--quiet` prints only the slug (use for `SLUG=$(memrain capture "..." --quiet)`).
 `--json` prints structured output for downstream tools.
 
 ## Anti-Patterns

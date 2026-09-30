@@ -11,7 +11,9 @@ not an ALB — the instance opens no inbound web ports.
 
 Throughout, replace placeholders: `example.com` (your domain), `<subdomain>`
 (default `brain`), `<account-id>`, `<instance-id>`, `<your-profile>`,
-`<your-region>` (default `eu-west-1`).
+`<your-region>` (default `eu-west-1`), `<prefix>` (secrets prefix, default
+`memrain`), `<project>` (project name, default `memrain`), `<scripts-bucket>`
+(default `<project>-scripts-<account-id>`, or `scripts_bucket_name` if set).
 
 ---
 
@@ -73,11 +75,14 @@ scripts/init.sh
 ```
 
 `scripts/init.sh` is interactive. It prompts for your AWS account id, region,
-profile, **domain**, subdomain (default `brain`), GitHub owner/repo, secrets
-prefix (default `memrain`), the tfstate bucket + region, optional
-alarm email / SSH CIDR, and a **feature tier** (default **Max quality** — the
-full paid Sonnet brain; the installer opts you into the recommended tier). It
-then writes three **gitignored** files atomically:
+profile, project name (default `memrain`; it drives AWS resource names and the
+host path `/opt/<project>`), **domain**, subdomain (default `brain`), GitHub
+owner/repo, secrets prefix (default `memrain`), the tfstate bucket + region +
+key (default `<project>/terraform.tfstate`), optional alarm email / SSH CIDR,
+whether to clone over an SSH deploy key (default `false`, for a public repo),
+and a **feature tier** (default **Max quality** — the full paid Sonnet brain;
+the installer opts you into the recommended tier). It then writes three
+**gitignored** files atomically:
 
 - `.env` — runtime config for compose + scripts (`PUBLIC_HOST` becomes
   `<subdomain>.<domain>`, `MEMRAIN_PUBLIC_WRITE=0`, plus the chosen tier's
@@ -86,8 +91,26 @@ then writes three **gitignored** files atomically:
   path. These flags only take effect once you recompose — a bare `git clone`
   (whose runtime code defaults stay OFF) never bills. See
   [CONFIGURATION.md](CONFIGURATION.md#quality--cost-tiers-pick-one).
+  This `.env` stays on your machine: the host's `/opt/<project>/.env` is
+  rendered by bootstrap without any tier flags, so the deployed brain runs
+  with the code defaults until you copy the tier block into the host's `.env`
+  and run `sudo bash deploy/deploy.sh` there (step 10; on a brain with no pages
+  yet add `DEPLOY_ALLOW_EMPTY=1`).
 - `terraform/terraform.tfvars` — terraform inputs.
 - `terraform/backend.hcl` — the S3 partial-backend config.
+
+Before `plan`, check two things init.sh does not write into
+`terraform.tfvars`:
+
+- **Region.** Only `aws_region` is written. `availability_zone` (default
+  `eu-west-1b`) and `multi_az_subnet_cidrs` (default `eu-west-1a` /
+  `eu-west-1c`) keep their defaults, so for any other region set both in
+  `terraform.tfvars` to AZs of that region, or `apply` fails on the subnets.
+  Pick an EU region: the IAM policy and the default Claude model ids use the
+  `eu.*` cross-region inference profiles.
+- **SSH.** Setting the SSH CIDR only opens port 22; no key pair exists unless
+  you also set `ssh_public_key` in `terraform.tfvars` by hand. Without it, use
+  SSM.
 
 Run `make audit` afterward to confirm no identifier leaked into a tracked file.
 
@@ -105,6 +128,16 @@ This creates the VPC, the EC2 instance (Graviton `t4g.medium` by default), the
 EFS filesystem, the RDS Postgres 16 instance (`db.t4g.micro`, private,
 encrypted, deletion-protected), the Secrets Manager secrets, IAM roles scoped to
 Bedrock + Secrets Manager, and (by default) CloudTrail.
+
+The instance boots and runs its first-boot bootstrap (step 6) while `apply` is
+still running, so anything bootstrap reads must exist before `apply` or be
+followed by the refresh steps below. The instance id and a ready SSM command
+come from the outputs:
+
+```bash
+terraform -chdir=terraform output -raw instance_id
+terraform -chdir=terraform output -raw ssm_command
+```
 
 The RDS instance has `deletion_protection = true` and takes a final snapshot —
 `terraform destroy` will not silently drop your index.
@@ -154,11 +187,18 @@ Terraform creates most secrets fully populated:
 - `<prefix>/memrain-public-bearer` — **auto-generated** 48-char token.
 - `<prefix>/memrain-internal-token` — **auto-generated** 48-char token.
 
-Exactly one secret is created as an **empty placeholder** you must fill by hand:
+In the default install exactly one secret is created as an **empty
+placeholder** you must fill by hand:
 
 - `<prefix>/cloudflared-tunnel-token` — empty until you create the tunnel
-  (step 5). Until it's filled, the `cloudflared` container loops forever trying
-  to authenticate and the public ingress never comes up.
+  (step 5). The host has already booted by then, so step 5 ends with a secrets
+  refetch on the host. Until that runs, the `cloudflared` container loops
+  forever trying to authenticate and the public ingress never comes up.
+
+With `use_ssh_deploy_key = true` terraform creates a second empty placeholder,
+`<prefix>/github-deploy-key`. First boot needs it to clone the repo, and that
+boot runs during `apply`: fill it with `put-secret-value` as soon as `apply`
+has created it, or re-run bootstrap afterwards (step 6).
 
 Read the auto-generated bearer (you'll need it for the MCP client in step 8):
 
@@ -185,6 +225,16 @@ aws secretsmanager get-secret-value \
      --secret-id <prefix>/cloudflared-tunnel-token \
      --secret-string '<tunnel-token>' \
      --profile <your-profile> --region <your-region>
+   ```
+
+4. The host booted during step 3 with an empty token. In an SSM session on the
+   host, refetch the secrets and recreate `cloudflared` (a plain `restart`
+   keeps the old, empty env):
+
+   ```bash
+   cd /opt/<project>
+   sudo bash deploy/secrets/fetch-secrets.sh
+   sudo docker compose --env-file .env up -d cloudflared
    ```
 
 The tunnel runs with `--protocol http2` (see `deploy/docker-compose.yml`) so it
@@ -229,12 +279,25 @@ rejects the destroy; run `aws secretsmanager restore-secret --secret-id
 ### Admin surface and OAuth consent
 
 Create `<prefix>/memrain-admin-bootstrap` with a 32+ character value from
-`[A-Za-z0-9_-]` (`openssl rand -base64 32 | tr '+/' '-_'`). Bootstrap reads it
-and writes both `MEMRAIN_ADMIN_BOOTSTRAP` and `MEMRAIN_OAUTH_REQUIRE_LOGIN=1` into
-`.env`, which gates `/authorize` on an operator being signed in. Leave the
-secret empty and the server mints a fresh token every restart and
-auto-approves every consent request instead — on a caddy install that consent
-screen is directly on the public internet.
+`[A-Za-z0-9_-]` (`openssl rand -base64 32 | tr '+/' '-_'`). Terraform does not
+create this secret; do it by hand, ideally **before** `terraform apply`:
+
+```bash
+aws secretsmanager create-secret \
+  --name <prefix>/memrain-admin-bootstrap \
+  --secret-string "$(openssl rand -base64 32 | tr '+/' '-_')" \
+  --profile <your-profile> --region <your-region>
+```
+
+Bootstrap reads it and writes both `MEMRAIN_ADMIN_BOOTSTRAP` and
+`MEMRAIN_OAUTH_REQUIRE_LOGIN=1` into `.env`, which gates `/authorize` on an
+operator being signed in. Bootstrap only reads it on a run, so a secret created
+after first boot has no effect until you re-run bootstrap (step 6) and then
+`sudo bash deploy/deploy.sh` from `/opt/<project>` (on a brain with no pages
+yet: `sudo DEPLOY_ALLOW_EMPTY=1 bash deploy/deploy.sh`, see step 10). Leave the secret empty and
+the server mints a fresh token every restart and auto-approves every consent
+request instead — on a caddy install that consent screen is directly on the
+public internet.
 
 **If anyone but the operator will connect, that flag has to come off.**
 `/admin/login` accepts exactly one credential — the operator bootstrap token —
@@ -252,12 +315,15 @@ serves one operator and nobody else.
 bearer rotation. Bootstrap does **not** install them; do it deliberately:
 
 ```bash
+cd /opt/memrain
 sudo install -m 644 deploy/systemd/*.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now memrain-eval-probe.timer
 ```
 
-Both read `AWS_REGION` from `/opt/memrain/.env`. Enable
+Both read `AWS_REGION` from `/opt/memrain/.env`. The units hardcode
+`/opt/memrain` and the `deploy-memrain-1` container, so they assume
+`project_name = "memrain"`; edit the paths first for any other name. Enable
 `memrain-rotate-bearer.timer` only once you know what consumes the public
 bearer — rotation breaks any client holding the old value.
 
@@ -265,8 +331,10 @@ bearer — rotation breaks any client holding the old value.
 
 ## 6. First boot
 
-The EC2 `user_data` runs `scripts/bootstrap.sh` on every boot (idempotent). On
-the first boot it:
+The EC2 `user_data` runs `scripts/bootstrap.sh` once, on first boot
+(cloud-init runs user_data once per instance; after a reboot the stack comes
+back through docker's restart policies, and `.env` and secrets are not
+refreshed). On that boot it:
 
 - installs Docker + the pinned Docker Compose v2 plugin (sha256-verified),
 - mounts EFS and seeds the canonical data dirs,
@@ -277,17 +345,28 @@ the first boot it:
   `deploy/.secrets/`,
 - `docker compose … up -d --build`.
 
-Memrain runs its DB migrations at container start — no manual migrate step. If you
-filled the tunnel token in step 5 before boot, the stack comes up healthy in one
-pass; if you filled it after, `docker compose restart cloudflared` on the host
-(via SSM) picks it up.
+Memrain runs its DB migrations at container start — no manual migrate step. The
+tunnel token is filled after this boot, so the ingress comes up only after the
+refetch at the end of step 5.
 
-Connect to the host with SSM (no SSH needed):
+Connect to the host with SSM (no SSH needed; `terraform output -raw
+ssm_command` prints this with the instance id filled in):
 
 ```bash
 aws ssm start-session --target <instance-id> \
   --profile <your-profile> --region <your-region>
 ```
+
+The SSM session runs as `ssm-user`, and the repo, `.env` and `deploy/.secrets/`
+are root-owned, so host commands need `sudo`. Bootstrap is idempotent; to re-run
+it (after creating a secret it reads, or to re-render `.env`):
+
+```bash
+aws s3 cp s3://<scripts-bucket>/scripts/bootstrap.sh /tmp/b.sh && sudo bash /tmp/b.sh
+```
+
+A re-run rewrites `/opt/<project>/.env` from scratch, so any line you added to
+it by hand (tier flags, other feature flags) is lost and has to be added again.
 
 ---
 
@@ -311,7 +390,7 @@ is indexed immediately. Markdown *files* dropped into the EFS
 no `memrain` alias inside the container — go through the CLI entry point):
 
 ```bash
-docker exec deploy-memrain-1 bun run src/cli.ts reindex --source vault --vault /memory
+sudo docker exec deploy-memrain-1 bun run src/cli.ts reindex --source vault --vault /memory
 ```
 
 It is incremental (unchanged files are skipped); add `--all` to force a full
@@ -323,7 +402,7 @@ To rebuild the code graph (definitions, references, callers, callees) in
 place, force a full code pass:
 
 ```bash
-docker exec deploy-memrain-1 bun run src/cli.ts reindex --source code --all
+sudo docker exec deploy-memrain-1 bun run src/cli.ts reindex --source code --all
 ```
 
 It is graph-only (tree-sitter, no Bedrock calls, no spend). Run it once after
@@ -334,7 +413,7 @@ code symbol mentions, or whenever an empty `code_def` reports readiness
 The 6-hour maintenance cycle maintains the existing corpus (re-embeds stale
 documents, housekeeping) — it does **not** ingest new files on its own in
 the DB-canonical design. If search misses content you expect, check the
-embed backlog: `bun run src/cli.ts embed --dry-run`.
+embed backlog on the host: `sudo docker exec deploy-memrain-1 bun run src/cli.ts embed --dry-run`.
 
 ---
 
@@ -395,7 +474,7 @@ curl -s https://<subdomain>.example.com/mcp \
 On the host you can also check container health directly:
 
 ```bash
-docker inspect deploy-memrain-1 --format '{{.State.Health.Status}}' # healthy
+sudo docker inspect deploy-memrain-1 --format '{{.State.Health.Status}}' # healthy
 ```
 
 ---
@@ -407,13 +486,24 @@ instance:
 
 ```bash
 cd /opt/memrain
-git pull --ff-only
-bash deploy/deploy.sh      # stamps the image with git describe, waits for healthy
-docker inspect deploy-memrain-1 --format '{{.State.Health.Status}}'
-curl -s http://127.0.0.1:18790/health    # {"ok":true,...,"version":"<new stamp>"}
+sudo git pull --ff-only
+sudo bash deploy/deploy.sh # stamps the image with git describe, waits for healthy
+sudo docker inspect deploy-memrain-1 --format '{{.State.Health.Status}}'
+sudo docker exec deploy-memrain-1 wget -qO- http://localhost:18790/health    # {"ok":true,...,"version":"<new stamp>"}
 ```
 
 Check that `version` in `/health` matches the stamp `deploy.sh` just built.
+
+`deploy.sh` refuses a brain with 0 pages: it stops `memrain` and leaves the
+ingress down. On a fresh install that has indexed nothing yet, run
+`sudo DEPLOY_ALLOW_EMPTY=1 bash deploy/deploy.sh`. The other knobs, all shell
+env: `DEPLOY_MIN_PAGES` (page floor), `DEPLOY_ALLOW_PGLITE=1` (accept a PGLite
+database), `DEPLOY_ALLOW_INGRESS_IN_MAINTENANCE=1` (rehearsal only) and
+`DEPLOY_STATUS_TIMEOUT` (seconds per status read, default 60).
+
+The container's memory cap is `MEMRAIN_MEM_LIMIT` in the host `.env` (compose
+`mem_limit`, default `3000m`); compose reads it, the app does not. Size it to
+the instance.
 
 Then check the brain from outside, the way a client reaches it. From a checkout
 on your own machine, with a token in a private file (the command refuses a file
@@ -421,7 +511,7 @@ that group or others can read, a symlink, or a secret passed on the command
 line):
 
 ```bash
-umask 077; printf '{"token":"%s"}' "$PAT" > ~/.config/memrain/doctor-token.json
+mkdir -p ~/.config/memrain && umask 077; printf '{"token":"%s"}' "$PAT" > ~/.config/memrain/doctor-token.json
 cd deploy/memrain
 bun run src/cli.ts auth doctor https://brain.example.com \
   --token-file ~/.config/memrain/doctor-token.json \
@@ -441,7 +531,7 @@ where it pointed, so neither the client secret nor the bearer is re-sent. It exi
 on a usage error; `--json` prints the full report.
 
 For
-a service other than `memrain`: `docker compose --env-file .env up -d --build
+a service other than `memrain`: `sudo docker compose --env-file .env up -d --build
 <service>` (no `-f`: it would override the `COMPOSE_FILE` line in `.env` and
 drop the Caddy overlay).
 
@@ -452,4 +542,5 @@ terraform-managed resource with ad-hoc CLI/console calls.
 To enable optional features (synthesis, paid Sonnet slices, tenancy flags,
 retrieval tuning), see [CONFIGURATION.md](./CONFIGURATION.md) — remember a flag
 must be in **both** `.env` and the compose `environment:` allowlist to take
-effect.
+effect. A bootstrap re-run rewrites the host's `.env` and drops hand-added
+flags; keep a copy of them and add them back after every re-run.

@@ -42,7 +42,7 @@ This skill guarantees:
 | 2 | Database, sources, brain health | `memrain doctor` | Per-finding (doctor names the cause) |
 | 3 | Background cycle ran recently | `memrain status` (cycle timestamp) | Kick a manual `memrain cycle` |
 | 4 | Secrets + Bedrock reachable | `memrain doctor` (auth findings) | Re-run the fetch-secrets step, restart |
-| 5 | Read path returns hits | `memrain call search '{"q":"<known topic>"}'` | Re-index, then `memrain embed` |
+| 5 | Read path returns hits | `memrain call search --args '{"q":"<known topic>"}'` | Re-index, then `memrain embed` |
 | 6 | Write path round-trips | `page_put` → `page_get` (see below) | — (escalate; a broken write path is not self-healing) |
 
 Checks 1-4 are read-only. Check 5 reads. Check 6 writes one throwaway page
@@ -55,14 +55,14 @@ and reads it back.
 ```bash
 memrain status
 memrain doctor
-memrain call search '{"q":"<a topic you know is indexed>"}'
+memrain call search --args '{"q":"<a topic you know is indexed>"}'
 ```
 
 ### Write-path round-trip (check 6)
 
 ```bash
-memrain call page_put '{"slug":"reports/smoke/_probe","markdown_body":"# probe\nsmoke check"}'
-memrain call page_get '{"slug":"reports/smoke/_probe"}'
+memrain call page_put --args '{"slug":"reports/smoke/_probe","markdown_body":"# probe\nsmoke check"}'
+memrain call page_get --args '{"slug":"reports/smoke/_probe"}'
 ```
 
 The `page_get` must return the content the `page_put` just wrote. Reuse the
@@ -92,7 +92,7 @@ the command that proves it. Follow this pattern:
 
 ```
 N. [What it proves]
-   Probe:    memrain call <tool> '<args>'   # or a memrain subcommand
+   Probe:    memrain call <tool> --args '<json>'   # or a memrain subcommand
    Pass:     [the specific field/shape that means healthy]
    Auto-fix: [the command] → re-run the probe → still bad? report it
 ```

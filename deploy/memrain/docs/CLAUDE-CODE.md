@@ -54,14 +54,23 @@ bun run src/cli.ts auth doctor https://brain.<your-domain> \
 ## Local-only alternative: SSM port-forward
 
 To reach the full tool set without any public credential, tunnel to the
-container from your workstation:
+container from your workstation. The container publishes no host port, and the
+`memrain` name resolves only inside the Docker network, so forward to the
+container's bridge IP. Read it on the host (it changes when the container is
+recreated):
+
+```bash
+sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' deploy-memrain-1
+```
+
+Then, from your workstation:
 
 ```bash
 AWS_PROFILE=<your-profile> aws ssm start-session \
   --target <your-instance-id> \
   --region <your-region> \
   --document-name AWS-StartPortForwardingSessionToRemoteHost \
-  --parameters '{"host":["memrain"],"portNumber":["18790"],"localPortNumber":["18790"]}'
+  --parameters '{"host":["<container-ip>"],"portNumber":["18790"],"localPortNumber":["18790"]}'
 ```
 
 While the session runs, point Claude Code at `http://localhost:18790/mcp`. A

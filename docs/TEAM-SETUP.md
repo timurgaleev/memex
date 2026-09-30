@@ -11,6 +11,10 @@ checklists live in [docs/clients/](./clients/):
 [claude.ai Pro/Max](./clients/CLAUDE_AI.md), [ChatGPT](./clients/CHATGPT.md),
 [Claude Code](./clients/CLAUDE_CODE.md) and [Codex](./clients/CODEX.md).
 
+`memrain …` below is the CLI on the host:
+`sudo docker exec deploy-memrain-1 bun run src/cli.ts …` in an SSM session, or
+`bun run src/cli.ts …` under `deploy/memrain` in a checkout.
+
 ---
 
 ## Pick the shape first
@@ -119,7 +123,7 @@ and that is fine — but only because of one specific property, which is worth
 verifying rather than assuming:
 
 ```bash
-memrain auth list-clients | grep -A2 '"client_name": "team-connector"'
+memrain auth list-clients | grep -A6 '"client_name": "team-connector"'
 # grant_types must be ["authorization_code","refresh_token"] — NOT client_credentials
 ```
 
@@ -145,8 +149,10 @@ one atomic `UPDATE`, so two people racing the same code cannot both win.
 
 ## The login gate
 
-`MEMRAIN_OAUTH_REQUIRE_LOGIN=1` — which bootstrap writes into **every new
-install** — gates `/authorize` on a signed-in operator.
+`MEMRAIN_OAUTH_REQUIRE_LOGIN=1` — which bootstrap writes when the
+`<prefix>/memrain-admin-bootstrap` secret exists (see DEPLOYMENT.md "Admin
+surface and OAuth consent"; without it `/authorize` auto-approves) — gates `/authorize` on a
+signed-in operator.
 
 `/admin/login` accepts exactly one credential: the operator bootstrap token.
 There is no per-user login. So with that flag on, a teammate can only complete a
@@ -175,8 +181,8 @@ memrain auth set-budget <client_id|token_name|enrollment_id> 2.00 # daily USD ce
 memrain auth revoke-client <client_id>   # cut a connector off entirely
 ```
 
-The admin panel does the same without an SSM session: **Credentials**, then
-**Members** on a browser connector's row lists each person (label, source,
+The admin panel does the same without an SSM session: **Agents** →
+**Credentials** → **Members** on a browser connector's row lists each person (label, source,
 redeemed, revoked, last token) with **Revoke code**, **Revoke grant**, **New
 code** and **Issue code**. Every change is audited with who made it.
 

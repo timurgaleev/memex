@@ -33,7 +33,9 @@ configured region:
   rest.
 - **AWS Bedrock** is used for embeddings (Amazon Titan Text Embeddings
   v2) and lightweight retrieval helpers — intent classification and
-  query expansion (Amazon Nova Lite). Memrain does **not** synthesize
+  query expansion (Claude Haiku 4.5 on Bedrock by default, overridable via
+  `MEMRAIN_UTILITY_MODEL` / `MEMRAIN_INTENT_MODEL` /
+  `MEMRAIN_EXPANSION_MODEL`). Memrain does **not** synthesize
   answers; that is the MCP client's job. Bedrock requests stay inside
   AWS; Amazon's standard Bedrock data-handling terms apply (no model
   training on customer prompts).
@@ -50,8 +52,10 @@ Only the operator. Access is gated behind:
 - A bearer token for the public read API at
   `<subdomain>.<your-domain>`, optionally rotated daily by the
   `memrain-rotate-bearer` systemd timer.
-- A Cloudflare Tunnel that fronts the EC2 instance — the underlying
-  host has no public IP.
+- The ingress in front of the EC2 instance. The host has an Elastic IP;
+  with the default Cloudflare Tunnel its security group admits no inbound
+  web traffic, and in Caddy mode 80/tcp and 443/tcp+udp are open; SSH (22) opens only when
+  `ssh_allowed_cidr` is set.
 
 ## Data retention and deletion
 

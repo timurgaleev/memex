@@ -6,6 +6,7 @@ Solo-maintained project — contributions land slowly. PRs welcome anyway.
 
 Prerequisites:
 - Bash 3.2+ (macOS default works)
+- Bun 1.3.10+ (the Bun and Postgres tests, typecheck)
 - Docker Compose v2
 - Terraform 1.6+
 - `aws` CLI (for AWS Secrets Manager / Bedrock / S3)
@@ -27,6 +28,7 @@ make lint    # shellcheck if installed
 
 ```bash
 cd deploy/memrain
+bun install --frozen-lockfile # once per checkout, before any Bun command
 bun run test:sharded          # the whole suite; the ship gate
 bun run test:changed          # only files affected since origin/main
 bun test tests/foo.test.ts    # one file while iterating
@@ -54,7 +56,7 @@ driver-specific behaviour only show up on a real Postgres, so a few tests
 read `MEMRAIN_TEST_POSTGRES_URL` and skip without it. To run them:
 
 ```bash
-make test-pg   # needs docker and bun
+make test-pg   # needs docker, bun and `bun install` in deploy/memrain
 ```
 
 It starts a throwaway `pgvector/pgvector:pg16` container on a free

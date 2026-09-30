@@ -10,9 +10,10 @@ what it does, and whether it costs money.
 
 There are two gates between a value you type and the running process:
 
-1. **The host `.env` file** — `/opt/memrain/.env` on the live instance (generated
-   by `scripts/init.sh`, then extended by `scripts/bootstrap.sh` at boot). This
-   is what `docker compose --env-file .env` reads.
+1. **The host `.env` file** — `/opt/memrain/.env` on the live instance, rendered
+   by `scripts/bootstrap.sh` from `/etc/stack-env` at boot (the `.env` that
+   `scripts/init.sh` writes is for the local checkout only). This is what
+   `docker compose --env-file .env` reads.
 2. **The compose allowlist** — the `environment:` block in
    `deploy/docker-compose.yml`. **Only variables listed there are passed into
    the container.** A flag set in `.env` but absent from the allowlist does
@@ -52,7 +53,7 @@ bash deploy/deploy.sh
 
 # 4. Verify the process actually sees it, and the brain is healthy.
 docker exec deploy-memrain-1 sh -c 'echo "$MEMRAIN_DREAM_SYNTHESIS"'
-curl -s http://127.0.0.1:18790/health   # -> {"ok":true,...}
+docker exec deploy-memrain-1 wget -qO- http://127.0.0.1:18790/health   # -> {"ok":true,...}
 ```
 
 A boolean flag is "on" only for the exact value the code checks (usually `=1`).
@@ -73,7 +74,9 @@ or `free` at the init prompt, or set `MEMRAIN_INIT_TIER=free|balanced|max` for t
 non-interactive path. **More spend buys more quality** — the paid tiers below are
 what the project is capable of at its best, and Max is the *recommended* setup.
 Change tiers any time by editing the flags in `.env` (all are in the compose
-allowlist) and recomposing.
+allowlist) and recomposing. On an EC2 host every `scripts/bootstrap.sh` run
+rewrites `.env` and keeps only the `*_SECRET_NAME` keys, so re-add hand-set
+flags after a bootstrap re-run.
 
 | Tier | What you get | Flags | ~Cost/mo* |
 |------|--------------|-------|-----------|
@@ -134,6 +137,11 @@ Unset or empty means the default name above. A value outside the Secrets
 Manager name alphabet stops the script before any AWS call. The bearer
 rotation script and `scripts/mcp-refresh.sh` read `PUBLIC_BEARER_SECRET_NAME`
 too. These keys are not part of the rename and stay in 1.1.0.
+`scripts/mcp-refresh.sh` runs on the operator's machine and does not read
+`.env`: it needs `MEMRAIN_MCP_URL` (the `https://<host>/mcp` endpoint) and
+`AWS_REGION`, and takes `MEMRAIN_SECRETS_PREFIX` (its default is the legacy
+prefix, so set it to your `SECRETS_PREFIX`), `MEMRAIN_MCP_NAME` (default `memrain`),
+`MEMRAIN_MCP_SCOPE` (default `user`) and `AWS_PROFILE`.
 
 The script fetches every value into a temporary file first and replaces the
 files only when all of them were read. Any error other than "secret not
@@ -204,12 +212,12 @@ you opt in.
 |---|---|---|---|
 | `MEMRAIN_RERANK` | off (`=1` on) | Two-pass rerank — reorders the top hybrid hits with one Claude Haiku call per search. The budget alternative to the paid Sonnet `MEMRAIN_GRAPH_RERANK`; near-identical ranking quality. | cheap (Haiku, ~$1–3/mo) |
 | `MEMRAIN_DREAM_SYNTHESIS` | off (`=1` on) | Appends the Haiku synthesis chain to quiet-hours cycle ticks only. Idempotent, count-capped. | cheap (Haiku) |
-| `MEMRAIN_DREAM_SYNTHESIS_MAX_DOCS` | `25` | Max source docs fed per synthesis run. | — |
-| `MEMRAIN_DREAM_SYNTHESIS_MAX_CONCEPTS` | `30` | Max concepts produced per run. | — |
-| `MEMRAIN_DREAM_SYNTHESIS_MAX_TAKES` | `25` | Max takes produced per run. | — |
-| `MEMRAIN_DREAM_SYNTHESIS_MIN_GRADED` | `5` | Minimum graded takes before the run is considered complete. | — |
-| `MEMRAIN_GRADE_MIN_AGE_DAYS` | `182` | Minimum age a take must reach before it becomes eligible for grading — lets a take settle before it is judged. `0` disables the gate. Fail-loud on a negative value. | free |
-| `MEMRAIN_TAKE_EMBED` | off (`=1` on) | Embed each synthesized take so takes are semantically searchable; off leaves the take's embedding column NULL. | cheap (embed) |
+| `MEMRAIN_DREAM_SYNTHESIS_MAX_DOCS` | `25` | Max source docs fed per synthesis run. Code-only. | — |
+| `MEMRAIN_DREAM_SYNTHESIS_MAX_CONCEPTS` | `30` | Max concepts produced per run. Code-only. | — |
+| `MEMRAIN_DREAM_SYNTHESIS_MAX_TAKES` | `25` | Max takes produced per run. Code-only. | — |
+| `MEMRAIN_DREAM_SYNTHESIS_MIN_GRADED` | `5` | Minimum graded takes before the run is considered complete. Code-only. | — |
+| `MEMRAIN_GRADE_MIN_AGE_DAYS` | `182` | Minimum age a take must reach before it becomes eligible for grading — lets a take settle before it is judged. `0` disables the gate. Fail-loud on a negative value. Code-only. | free |
+| `MEMRAIN_TAKE_EMBED` | off (`=1` on) | Embed each synthesized take so takes are semantically searchable; off leaves the take's embedding column NULL. Code-only. | cheap (embed) |
 | `MEMRAIN_DREAM_INTERVAL_S` | `21600` (6h) | Maintenance-cycle interval. | free |
 | `MEMRAIN_DREAM_STALE_DAYS` | `30` | Re-embed docs older than this many days during the cycle. | free |
 | `MEMRAIN_UTILITY_MODEL` | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | Overrides the Haiku utility-tier model id (intent classification, query expansion, rerank, synthesis, contextual blurbs). **Code-only:** `deploy/docker-compose.yml` does not pass it through, so it has no effect on the deployed stack unless you add it to the compose allowlist. Use the per-feature keys below to move one call site. | cheap (Haiku) |
@@ -219,9 +227,9 @@ you opt in.
 | `MEMRAIN_INTENT_MODEL` | utility model | Model id for the `MEMRAIN_INTENT_LLM` tie-break only. Allowlisted. | cheap (Haiku) |
 | `MEMRAIN_RERANK_MODEL` | utility model | Model id for the `MEMRAIN_RERANK` two-pass rerank only. Allowlisted. | cheap (Haiku) |
 | `MEMRAIN_CONCEPTS_MODEL` | utility model | Model id for concept synthesis only; `MEMRAIN_CONCEPTS_BUDGET_USD` prices the same model. Allowlisted. | cheap (Haiku) |
-| `MEMRAIN_WORTH_GATE` | off (`=1` on) | A cached Haiku verdict ("is this transcript worth synthesizing?") in front of the paid transcript consumers (reflections, conversation-facts backfill). Fail-open: a judge error lets the transcript through. | cheap (Haiku) |
-| `MEMRAIN_SYNTH_PAGES` | on (`=0` off) | Mirrors synthesis atoms and concepts into pages. `0` keeps them in the `synth_*` tables only. | free |
-| `MEMRAIN_LLM_MAX_INFLIGHT` | `4` | Bedrock chat calls one process runs at once; the rest wait. | — |
+| `MEMRAIN_WORTH_GATE` | off (`=1` on) | A cached Haiku verdict ("is this transcript worth synthesizing?") in front of the paid transcript consumers (reflections, conversation-facts backfill). Fail-open: a judge error lets the transcript through. Code-only. | cheap (Haiku) |
+| `MEMRAIN_SYNTH_PAGES` | on (`=0` off) | Mirrors synthesis atoms and concepts into pages. `0` keeps them in the `synth_*` tables only. Code-only. | free |
+| `MEMRAIN_LLM_MAX_INFLIGHT` | `4` | Bedrock chat calls one process runs at once; the rest wait. Code-only. | — |
 
 Model ids resolve in `core/llm/resolve-model.ts`, in this order: the feature's
 own key (`MEMRAIN_<FEATURE>_MODEL`), then the tier key (`MEMRAIN_UTILITY_MODEL` or
@@ -239,8 +247,8 @@ that stops making calls once the budget is spent. All default OFF.
 |---|---|---|---|
 | `MEMRAIN_THINK` | off | Enables `memrain think <q>` deep synthesis — **CLI-only**, does not fire on search. | **paid (Sonnet)** |
 | `MEMRAIN_THINK_BUDGET_USD` | `1.0` | USD ceiling for `think`. | — |
-| `MEMRAIN_THINK_OUTPUT_TOKENS` | `4000` | Output-token cap for one `think` call. `think` returns structured JSON, so a cut-off answer is total loss rather than a shorter answer — raise this if answers come back incomplete. Clamped to 8000. | — |
-| `MEMRAIN_THINK_AUTO_ANCHOR` | on (`=0` off) | When a temporal question ("when did X change, is it still…") names no anchor, `think` derives candidate entity slugs from the question + retrieved pages and anchors on them. Temporal/knowledge-update intents only, fail-soft. A behavior toggle inside the `think` flow — no extra billable call beyond `think` itself. | — |
+| `MEMRAIN_THINK_OUTPUT_TOKENS` | `4000` | Output-token cap for one `think` call. `think` returns structured JSON, so a cut-off answer is total loss rather than a shorter answer — raise this if answers come back incomplete. Clamped to 8000. Code-only. | — |
+| `MEMRAIN_THINK_AUTO_ANCHOR` | on (`=0` off) | When a temporal question ("when did X change, is it still…") names no anchor, `think` derives candidate entity slugs from the question + retrieved pages and anchors on them. Temporal/knowledge-update intents only, fail-soft. A behavior toggle inside the `think` flow — no extra billable call beyond `think` itself. Code-only. | — |
 | `MEMRAIN_RELATIONAL_LLM` | off | Sonnet fallback for the relational retrieval arm when the cheap path is inconclusive. | **paid (Sonnet)** |
 | `MEMRAIN_RELATIONAL_LLM_BUDGET_USD` | `1.0` | USD ceiling for the relational arm. | — |
 | `MEMRAIN_GRAPH_RERANK` | off | Sonnet rerank over graph-expanded candidates — **fires on every search**, so the highest-frequency paid path. Enable deliberately. | **paid (Sonnet)** |
@@ -257,43 +265,43 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMRAIN_THINK_MODEL` | `MEMRAIN_FACTS_MODEL` | Model id for `think` only. Allowlisted. | **paid (Sonnet)** |
 | `MEMRAIN_DRIFT_MODEL` | `MEMRAIN_FACTS_MODEL` | Model id for the drift judge only (the cycle phase that checks whether a take's evidence still holds). Allowlisted. | **paid (Sonnet)** |
 | `MEMRAIN_DEEP_MODEL` | unset (falls back to Sonnet) | Opt-in deeper model for scheduled deep-synth. Unset, deep-synth runs on the `MEMRAIN_FACTS_MODEL` model. Code-only. | **paid** |
-| `MEMRAIN_CONCEPTS_BUDGET_USD` | `0.5` | USD ceiling for one `synthesize_concepts` run. Unlike the caps above this one is ALWAYS on — `maxConcepts` bounds the call count, not the spend, and the cycle passes no tracker of its own. Concepts refused by the ceiling keep their deterministic narrative. | — |
-| `MEMRAIN_REFLECTIONS` | off | `reflections` cycle phase: one budget-capped Sonnet pass over recent un-reflected transcripts writes cited `reflections/<topic-slug>` pages, giving the `patterns` phase a source to mine. Runs before `patterns`. | **paid (Sonnet)** |
-| `MEMRAIN_REFLECTIONS_BUDGET_USD` | `1.0` | USD ceiling for the reflections pass. | — |
-| `MEMRAIN_REFLECTIONS_LOOKBACK_DAYS` | `14` | How far back the pass scans for un-reflected transcripts. | — |
-| `MEMRAIN_REFLECTIONS_MAX_TRANSCRIPTS` | `20` | Max transcripts fed into one reflections pass. | — |
-| `MEMRAIN_PATTERNS` | off | `patterns` cycle phase: one budget-capped Sonnet pass mines recent `reflections/` pages for themes recurring across ≥`MIN_EVIDENCE` distinct reflections and writes one `patterns/<topic-slug>` page each (citing its evidence). The one synthesis phase that writes real pages; reads/writes pinned to a single `source_id` (no cross-tenant mining). | **paid (Sonnet)** |
-| `MEMRAIN_PATTERNS_BUDGET_USD` | `1.0` | USD ceiling for the patterns pass. | — |
-| `MEMRAIN_PATTERNS_REFLECTION_PREFIX` | `reflections/` | Slug prefix the miner reads (kept in lockstep with what the reflections phase writes). | — |
-| `MEMRAIN_PATTERNS_MIN_EVIDENCE` | `3` | Minimum distinct reflections a theme must span before a pattern page is written. | — |
-| `MEMRAIN_PATTERNS_LOOKBACK_DAYS` | `30` | How far back the patterns pass reads reflections. | — |
-| `MEMRAIN_PATTERNS_MAX_REFLECTIONS` | `100` | Max reflections fed into one patterns pass. | — |
-| `MEMRAIN_AUTO_THINK` | off (`=1` on) | `auto-think` cycle phase: runs the questions in `MEMRAIN_AUTO_THINK_QUESTIONS` through `think` and writes each answer as a draft page under `drafts/think/`. | **paid (Sonnet)** |
-| `MEMRAIN_AUTO_THINK_QUESTIONS` | empty | CSV of standing questions. With none set the phase does nothing. | — |
-| `MEMRAIN_AUTO_THINK_MAX` | `5` | Max questions per run. | — |
-| `MEMRAIN_AUTO_THINK_BUDGET_USD` | `2.0` | USD ceiling for one run, shared across its questions. `0` is a real cap. | — |
-| `MEMRAIN_AUTO_THINK_COOLDOWN_HOURS` | `12` | Minimum hours between runs per tenant. `0` disables the cooldown. | — |
-| `MEMRAIN_DRIFT` | off (`=1` on) | `drift` cycle phase: takes (weight 0.3–0.85) whose source document was re-ingested after the take was made are judged against the new text, and the result is written to a `drift-reports/` page. | **paid (Sonnet)** |
-| `MEMRAIN_DRIFT_BUDGET_USD` | `1.0` | USD ceiling for one drift run. `0` is a real cap. | — |
-| `MEMRAIN_DRIFT_COOLDOWN_HOURS` | `12` | Minimum hours between drift runs per tenant. | — |
-| `MEMRAIN_DRIFT_MAX_CANDIDATES` | `12` | Max takes judged per run. | — |
-| `MEMRAIN_ENRICH_THIN` | off (`=1` on) | `enrich-thin` cycle phase: rewrites a few short real pages in place, expanding each from its linked neighbours only (one Sonnet call per page, citations as wiki links). | **paid (Sonnet)** |
-| `MEMRAIN_ENRICH_THIN_BUDGET_USD` | `1.0` | USD ceiling for one run. `0` is a real cap. | — |
-| `MEMRAIN_ENRICH_THIN_COOLDOWN_HOURS` | `12` | Minimum hours between runs per tenant. | — |
-| `MEMRAIN_ENRICH_THIN_MAX_PAGES` | `3` | Max pages rewritten per run. | — |
-| `MEMRAIN_ENRICH_THIN_THRESHOLD` | `400` | Body length (characters) under which a page counts as thin. | — |
-| `MEMRAIN_ENRICH_THIN_TYPES` | `person,company,concept,note` | Page types eligible for enrichment. CSV. | — |
-| `MEMRAIN_FACTS_WRITE_BUDGET_USD` | `0.05` | USD ceiling for the facts extraction one page write triggers when `MEMRAIN_FACTS_EXTRACTION` is on. | — |
-| `MEMRAIN_AUTO_CHRONICLE` | off (`=1` on) | On an operator write of a conversation-shaped page, queue one `chronicle_extract` job that projects its events into the chronicle. Tenant and public writes never trigger it. | **paid (Sonnet)** |
-| `MEMRAIN_CHRONICLE_WRITE_BUDGET_USD` | `0.05` | USD ceiling for one page's chronicle extraction (also what `chronicle_backfill` quotes per page). | — |
-| `MEMRAIN_CHRONICLE_TZ` | `UTC` | Time zone used to turn a chronicle event's time into a date. | free |
-| `MEMRAIN_TAKE_AUTO_RESOLVE` | off (`=1` on) | Lets a high-confidence ensemble verdict resolve a take instead of staying advisory. Never overwrites a human resolution. | free (uses the ensemble's calls) |
-| `MEMRAIN_PROBE_VERDICT_TTL_DAYS` | `30` | Days a cached contradiction-probe verdict is reused before the pair is judged again. | — |
-| `MEMRAIN_REMEDIATION_MAX_USD` | `1.0` | USD ceiling for one `memrain doctor --remediate` run (the re-embed and re-run jobs it queues). | — |
-| `MEMRAIN_PROBE_CONTRADICTIONS` | off | Latent-contradiction probe (mig 064): a paid cycle phase that caches LLM-suspected fact conflicts so `find_contradictions` can surface them. Paired candidates stay `source_id`-scoped (no cross-tenant pairing). | **paid (Sonnet)** |
-| `MEMRAIN_PROBE_CONTRADICTIONS_BUDGET_USD` | `1.0` | USD ceiling for the contradiction probe. | — |
-| `MEMRAIN_FACTS_BACKFILL` | off | `conversation-facts-backfill` cycle phase: extracts facts from historical transcripts that predate on-write extraction. Synthesis-written pages (`reflections/`, `patterns/`) are excluded from the selector. No-ops unless set truthy. | **paid (Sonnet)** |
-| `MEMRAIN_FACTS_BACKFILL_BUDGET_USD` | `1.0` | Brain-wide USD ceiling for the backfill. | — |
+| `MEMRAIN_CONCEPTS_BUDGET_USD` | `0.5` | USD ceiling for one `synthesize_concepts` run. Unlike the caps above this one is ALWAYS on — `maxConcepts` bounds the call count, not the spend, and the cycle passes no tracker of its own. Concepts refused by the ceiling keep their deterministic narrative. Code-only. | — |
+| `MEMRAIN_REFLECTIONS` | off | `reflections` cycle phase: one budget-capped Sonnet pass over recent un-reflected transcripts writes cited `reflections/<topic-slug>` pages, giving the `patterns` phase a source to mine. Runs before `patterns`. Code-only. | **paid (Sonnet)** |
+| `MEMRAIN_REFLECTIONS_BUDGET_USD` | `1.0` | USD ceiling for the reflections pass. Code-only. | — |
+| `MEMRAIN_REFLECTIONS_LOOKBACK_DAYS` | `14` | How far back the pass scans for un-reflected transcripts. Code-only. | — |
+| `MEMRAIN_REFLECTIONS_MAX_TRANSCRIPTS` | `20` | Max transcripts fed into one reflections pass. Code-only. | — |
+| `MEMRAIN_PATTERNS` | off | `patterns` cycle phase: one budget-capped Sonnet pass mines recent `reflections/` pages for themes recurring across ≥`MIN_EVIDENCE` distinct reflections and writes one `patterns/<topic-slug>` page each (citing its evidence). The one synthesis phase that writes real pages; reads/writes pinned to a single `source_id` (no cross-tenant mining). Code-only. | **paid (Sonnet)** |
+| `MEMRAIN_PATTERNS_BUDGET_USD` | `1.0` | USD ceiling for the patterns pass. Code-only. | — |
+| `MEMRAIN_PATTERNS_REFLECTION_PREFIX` | `reflections/` | Slug prefix the miner reads (kept in lockstep with what the reflections phase writes). Code-only. | — |
+| `MEMRAIN_PATTERNS_MIN_EVIDENCE` | `3` | Minimum distinct reflections a theme must span before a pattern page is written. Code-only. | — |
+| `MEMRAIN_PATTERNS_LOOKBACK_DAYS` | `30` | How far back the patterns pass reads reflections. Code-only. | — |
+| `MEMRAIN_PATTERNS_MAX_REFLECTIONS` | `100` | Max reflections fed into one patterns pass. Code-only. | — |
+| `MEMRAIN_AUTO_THINK` | off (`=1` on) | `auto-think` cycle phase: runs the questions in `MEMRAIN_AUTO_THINK_QUESTIONS` through `think` and writes each answer as a draft page under `drafts/think/`. Code-only. | **paid (Sonnet)** |
+| `MEMRAIN_AUTO_THINK_QUESTIONS` | empty | CSV of standing questions. With none set the phase does nothing. Code-only. | — |
+| `MEMRAIN_AUTO_THINK_MAX` | `5` | Max questions per run. Code-only. | — |
+| `MEMRAIN_AUTO_THINK_BUDGET_USD` | `2.0` | USD ceiling for one run, shared across its questions. `0` is a real cap. Code-only. | — |
+| `MEMRAIN_AUTO_THINK_COOLDOWN_HOURS` | `12` | Minimum hours between runs per tenant. `0` disables the cooldown. Code-only. | — |
+| `MEMRAIN_DRIFT` | off (`=1` on) | `drift` cycle phase: takes (weight 0.3–0.85) whose source document was re-ingested after the take was made are judged against the new text, and the result is written to a `drift-reports/` page. Code-only. | **paid (Sonnet)** |
+| `MEMRAIN_DRIFT_BUDGET_USD` | `1.0` | USD ceiling for one drift run. `0` is a real cap. Code-only. | — |
+| `MEMRAIN_DRIFT_COOLDOWN_HOURS` | `12` | Minimum hours between drift runs per tenant. Code-only. | — |
+| `MEMRAIN_DRIFT_MAX_CANDIDATES` | `12` | Max takes judged per run. Code-only. | — |
+| `MEMRAIN_ENRICH_THIN` | off (`=1` on) | `enrich-thin` cycle phase: rewrites a few short real pages in place, expanding each from its linked neighbours only (one Sonnet call per page, citations as wiki links). Code-only. | **paid (Sonnet)** |
+| `MEMRAIN_ENRICH_THIN_BUDGET_USD` | `1.0` | USD ceiling for one run. `0` is a real cap. Code-only. | — |
+| `MEMRAIN_ENRICH_THIN_COOLDOWN_HOURS` | `12` | Minimum hours between runs per tenant. Code-only. | — |
+| `MEMRAIN_ENRICH_THIN_MAX_PAGES` | `3` | Max pages rewritten per run. Code-only. | — |
+| `MEMRAIN_ENRICH_THIN_THRESHOLD` | `400` | Body length (characters) under which a page counts as thin. Code-only. | — |
+| `MEMRAIN_ENRICH_THIN_TYPES` | `person,company,concept,note` | Page types eligible for enrichment. CSV. Code-only. | — |
+| `MEMRAIN_FACTS_WRITE_BUDGET_USD` | `0.05` | USD ceiling for the facts extraction one page write triggers when `MEMRAIN_FACTS_EXTRACTION` is on. Code-only. | — |
+| `MEMRAIN_AUTO_CHRONICLE` | off (`=1` on) | On an operator write of a conversation-shaped page, queue one `chronicle_extract` job that projects its events into the chronicle. Tenant and public writes never trigger it. Code-only. | **paid (Sonnet)** |
+| `MEMRAIN_CHRONICLE_WRITE_BUDGET_USD` | `0.05` | USD ceiling for one page's chronicle extraction (also what `chronicle_backfill` quotes per page). Code-only. | — |
+| `MEMRAIN_CHRONICLE_TZ` | `UTC` | Time zone used to turn a chronicle event's time into a date. Code-only. | free |
+| `MEMRAIN_TAKE_AUTO_RESOLVE` | off (`=1` on) | Lets a high-confidence ensemble verdict resolve a take instead of staying advisory. Never overwrites a human resolution. Code-only. | free (uses the ensemble's calls) |
+| `MEMRAIN_PROBE_VERDICT_TTL_DAYS` | `30` | Days a cached contradiction-probe verdict is reused before the pair is judged again. Code-only. | — |
+| `MEMRAIN_REMEDIATION_MAX_USD` | `1.0` | USD ceiling for one `memrain doctor --remediate` run (the re-embed and re-run jobs it queues). Code-only. | — |
+| `MEMRAIN_PROBE_CONTRADICTIONS` | off | Latent-contradiction probe (mig 064): a paid cycle phase that caches LLM-suspected fact conflicts so `find_contradictions` can surface them. Paired candidates stay `source_id`-scoped (no cross-tenant pairing). Code-only. | **paid (Sonnet)** |
+| `MEMRAIN_PROBE_CONTRADICTIONS_BUDGET_USD` | `1.0` | USD ceiling for the contradiction probe. Code-only. | — |
+| `MEMRAIN_FACTS_BACKFILL` | off | `conversation-facts-backfill` cycle phase: extracts facts from historical transcripts that predate on-write extraction. Synthesis-written pages (`reflections/`, `patterns/`) are excluded from the selector. No-ops unless set truthy. Code-only. | **paid (Sonnet)** |
+| `MEMRAIN_FACTS_BACKFILL_BUDGET_USD` | `1.0` | Brain-wide USD ceiling for the backfill. Code-only. | — |
 | `MEMRAIN_CONTEXTUAL_RETRIEVAL` | off | **LLM-free** contextual-embed wrapper. ⚠️ Enabling it changes only *future* embeds — **run a full re-embed after enabling**, or the vector space becomes a mix of wrapped and unwrapped vectors and search quality degrades. | free (but forces re-embed) |
 | `MEMRAIN_CONTEXTUAL_LLM` | off | **PAID per-chunk** contextual tier (Haiku): asks a utility model to write a short blurb situating EACH chunk within its whole document, replacing the deterministic synopsis before embedding. Fail-open — budget/errors fall back to the deterministic prefix. ⚠️ Same re-embed caveat as above; run `reindex --contextual` after enabling. | **paid (Haiku)** |
 | `MEMRAIN_CONTEXTUAL_LLM_BUDGET_USD` | `5.0` | USD ceiling for the per-chunk LLM tier. Shared across a whole `reindex --contextual` run; when spent mid-run, remaining chunks fall back to deterministic. A later `--force` re-run with more budget upgrades them. | — |
@@ -327,7 +335,7 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMRAIN_ASSUME_PUBLIC` | off (`=1` on) | Treat every HTTP request as public ingress. Public detection otherwise keys on the `Cf-Connecting-Ip` header a Cloudflare Tunnel injects; behind another proxy that does not add it, set this (or inject the header) or remote callers are judged as internal peers. Allowlisted. | free |
 | `MEMRAIN_HTTP_CORS_ORIGIN` | unset (no cross-origin) | CSV of browser origins allowed to call Memrain cross-origin. Unset denies every cross-origin request. Allowlisted. | free |
 | `MEMRAIN_MCP_RATE_LIMIT_PER_TOKEN_PER_MINUTE` | unset (off) | Per-credential cap on `/mcp` requests per minute, applied after authentication, on top of the per-IP limiter. Allowlisted. | free |
-| `MEMRAIN_PUBLIC_READ_BODIES` | off (redacted) | When on, public reads return full page bodies instead of redacted snippets. Leave off on a shared brain. | free |
+| `MEMRAIN_PUBLIC_READ_BODIES` | off (redacted) | When on, public reads return full page bodies instead of redacted snippets. Leave off on a shared brain. Code-only. | free |
 | `MEMRAIN_HTTP_TRUST_PROXY` | off (`=1` on) | Let every header-keyed rate limiter fall back to `X-Forwarded-For` (first hop) then `X-Real-IP` when `Cf-Connecting-Ip` is absent. Both are attacker-controlled unless a trusted reverse proxy overwrites them, and a spoofable key is worse than none — the caller rotates values and mints a fresh bucket per request. Off, an unattributable caller is not metered per-IP at all. Turn on ONLY behind a proxy that terminates the client connection and rewrites those headers itself. | free |
 | `MEMRAIN_ADMIN_BOOTSTRAP` | unset | Admin-panel bootstrap token consumed by `serve.ts` at start. Must be 32+ chars from `[A-Za-z0-9_-]` or the server refuses to boot; unset ⇒ an ephemeral per-run token is printed to stderr. | free |
 | `MEMRAIN_ENABLE_DCR` | off (`=1` on) | Dynamic Client Registration. Default OFF: `POST /register` returns 404 and discovery omits `registration_endpoint`, so no one can self-register a client — an operator creates clients via `memrain auth register-client`. When on, a self-registered client gets the `authorization_code` grant (`client_credentials` is refused). **That grant only carries operator consent when `/authorize` is gated on a logged-in operator, so the server refuses to boot with DCR on unless `MEMRAIN_OAUTH_REQUIRE_LOGIN=1` (with `MEMRAIN_ADMIN_BOOTSTRAP`) or the explicit `MEMRAIN_ENABLE_DCR_INSECURE=1` is also set.** Turn on only if a client must self-register. | free |
@@ -335,10 +343,10 @@ that stops making calls once the budget is spent. All default OFF.
 | `MEMRAIN_OAUTH_REQUIRE_LOGIN` | off (`=1` on) | When on, `GET /authorize` requires a logged-in operator (admin session) before issuing an authorization code; off (default) auto-approves. Needs `MEMRAIN_ADMIN_BOOTSTRAP` set to be usable. | free |
 | `MEMRAIN_OAUTH_REFRESH_REUSE_REVOKE` | off (`=1` on) | What happens when a client presents a refresh token it already rotated more than 60 seconds ago. Off (default): the request is refused with `invalid_grant` and logged as `[oauth] refresh token reuse`, and the session keeps working. On: every live access and refresh token of that sign-in is also deleted, so both holders must sign in again. Turn on once the logs show no legitimate client replays late. | free |
 | `MEMRAIN_PUBLIC_URL` | unset (request host) | External base URL (Cloudflare tunnel origin). When set, the OAuth discovery document + issuer advertise this `https://…` origin so a cloud MCP client auto-configures against the real host. Set it behind any TLS-terminating proxy: unset, the issuer comes from the request (`http://…` there), and the RFC 8707 `resource` check at `/authorize` and `/token` refuses a client's `https://` connector URL with `invalid_target`. `serve` warns at boot when OAuth is on and it is unset. | free |
-| `MEMRAIN_HOT_MEMORY_META` | off (`=1` on) | Surface a `_meta` block on `hot_memory` responses (non-public calls only). Stays dark — empty payload — until an operator opts in. | free |
+| `MEMRAIN_HOT_MEMORY_META` | off (`=1` on) | Surface a `_meta` block on `hot_memory` responses (non-public calls only). Stays dark — empty payload — until an operator opts in. Code-only. | free |
 | `MEMRAIN_DOCTOR_PER_SOURCE` | off (`=1` on) | Makes `doctor` WARN per-source (per-tenant) when a single source has chunks but zero embeddings. | free |
-| `MEMRAIN_REQUEST_LOG_DB` | off (`=1` on) | Persist per-request MCP logs to the DB (in addition to stderr). | free |
-| `MEMRAIN_LOG_REQUESTS` | off | Emit redacted per-request MCP param logs to stderr. Nothing is logged unless set. | free |
+| `MEMRAIN_REQUEST_LOG_DB` | off (`=1` on) | Persist per-request MCP logs to the DB (in addition to stderr). Code-only. | free |
+| `MEMRAIN_LOG_REQUESTS` | off | Emit redacted per-request MCP param logs to stderr. Nothing is logged unless set. Code-only. | free |
 | `MEMRAIN_DEPLOYMENT_IDENTITY` | unset | One line on what this brain is (for example "Team brain for the docs group"). Appended to the MCP `initialize` instructions as a `Deployment:` paragraph after Memrain's built-in operating contract. Trimmed and capped at 2000 characters. Served to **every** caller, public ingress included: public-facing prose only, never a secret. | free |
 | `MEMRAIN_MCP_INSTRUCTIONS` | unset | Extra operator guidance appended after the deployment identity in the `initialize` instructions (for example where meeting notes belong). Trimmed and capped at 2000 characters. Served to every caller, public ingress included, so it must not hold secrets. | free |
 | `MEMRAIN_MCP_LENIENT_ARGS` | off | MCP calls that pass an argument the tool does not declare are refused with `invalid_params` and a did-you-mean hint. `=1` accepts and ignores unknown arguments again: a temporary escape for an old client, since a misspelled key is then dropped without an error. | free |
@@ -631,7 +639,7 @@ job timeouts. The compose-allowlisted ones carry explicit defaults in
 | `MEMRAIN_CONNECTOR_GAP_HEAL_MINUTES` | `15` | Minutes a connector re-reads behind its watermark on each run, so an item whose update became visible late is not skipped. Allowlisted. | free |
 | `MEMRAIN_CONNECTOR_STALL_DAYS` | `7` | `memrain doctor` warns on a connector whose last clean run is older than this many days (it also warns when the last run was `auth_required` or `forbidden`). Allowlisted. | free |
 | `MEMRAIN_MIGRATION_LOCK_TIMEOUT` | `10s` | Per-migration advisory-lock timeout (e.g. `10s`, `500ms`, `5min`). Fail-loud on a malformed value. | free |
-| `MEMRAIN_LOCK_STEAL_GRACE_SECONDS` | `600` | Grace before a stale cycle-lock holder can be taken over. Auto-derived from TTL when unset. | free |
+| `MEMRAIN_LOCK_STEAL_GRACE_SECONDS` | derived: 2 × (TTL in seconds ÷ 6), min `60` s | Grace before a stale cycle-lock holder can be taken over. Auto-derived from TTL when unset. | free |
 | `MEMRAIN_EXTRACT_STALE_BATCH` | `50` | Batch size for the stale-links re-extract sweep. | free |
 | `MEMRAIN_EXTRACT_TIME_BUDGET_MS` | `1800000` (30m) | Wall-clock budget for one stale-extract invocation. `--catch-up` removes the cap. | free |
 | `MEMRAIN_EMBED_CONCURRENCY` | `8` | Max in-flight embed calls in the backfill fan-out pool; a full backfill is ~pool-size faster than serial. | free |
@@ -746,14 +754,17 @@ schema in `terraform/variables.tf`.
 | `availability_zone` | `eu-west-1b` | AZ for the primary subnet. |
 | `multi_az_subnet_cidrs` | `{eu-west-1a=10.0.2.0/24, eu-west-1c=10.0.3.0/24}` | Extra subnets to satisfy the RDS multi-AZ subnet group. |
 | `bedrock_allowed_regions` | EU family + `us-east-1` | Regions where the instance role may invoke the expensive Claude models; an IAM Deny blocks `anthropic.claude-*` elsewhere. |
-| `bedrock_model_id` | `global.amazon.nova-2-lite-v1:0` | Bedrock CRIS inference-profile id for the primary model, validated against an allowed list. The **runtime** utility tier is the built-in Claude Haiku default (overridable per feature with the `MEMRAIN_<FEATURE>_MODEL` keys, or with the code-only `MEMRAIN_UTILITY_MODEL`); this terraform var governs IAM/output scope. |
+| `bedrock_model_id` | `eu.anthropic.claude-haiku-4-5-20251001` | Bedrock CRIS inference-profile id for the primary model, validated against an allowed list. The **runtime** utility tier is the built-in Claude Haiku default (overridable per feature with the `MEMRAIN_<FEATURE>_MODEL` keys, or with the code-only `MEMRAIN_UTILITY_MODEL`); this terraform var is informational: it feeds only the `bedrock_model` output, and IAM does not reference it. |
 | `alarm_email` | `""` | Email for the EC2 status-check CloudWatch alarm. Empty skips email (alarm still fires). |
 | `ssh_allowed_cidr` | `""` | CIDR allowed inbound SSH. Empty disables SSH — use SSM Session Manager. |
 | `enable_vpc_endpoints` | `false` | Enable interface VPC endpoints (Bedrock, SM, SSM, Logs). ~$43/mo — off for personal use. |
 | `enable_cloudtrail` | `true` | Enable CloudTrail API auditing (logs in S3, 90-day retention). |
 | `repo_url` | `""` | Git URL the EC2 clones at first boot. HTTPS for public repos; SSH form needs `use_ssh_deploy_key = true`. |
+| `ingress_mode` | `cloudflare` | How the public MCP endpoint is reached: `cloudflare` (Cloudflare Tunnel sidecar, no inbound ports) or `caddy` (Caddy terminates TLS on the instance, opens inbound 80/443). |
+| `caddy_manage_dns` | `true` | `caddy` ingress only: create the `<subdomain>.<domain>` A record in the domain's Route53 hosted zone. Set false when DNS lives elsewhere and create the record to the instance EIP yourself. |
+| `efs_backup` | `true` | AWS Backup's daily EFS backups (35-day retention). Set false only if another backup covers the mount. |
 
-> The `bedrock_model_id` default still names Nova at the terraform/IAM layer, but
+> The `bedrock_model_id` var does not change what runs:
 > the **retrieval brain calls only Anthropic models via Bedrock at runtime** —
 > Claude Haiku for the utility tier (built-in default; `MEMRAIN_UTILITY_MODEL` is
 > code-only, not in the compose allowlist) and Claude Sonnet for the paid slices

@@ -24,7 +24,7 @@ existing Postgres; under 30 including infrastructure provisioning.
 
 ## Contract
 
-- Setup completes with a working brain verified by `memrain doctor --json` (all checks OK).
+- Setup completes with a working brain verified by `memrain doctor` (all checks OK).
 - The brain-first lookup protocol is injected into the project's AGENTS.md or equivalent.
 - Live indexing is configured and verified (a test change indexed and found via search).
 - Setup choices are tracked on the `tasks/setup-state` brain page so future upgrades know what the user adopted or declined.
@@ -36,7 +36,7 @@ Clone the repo on the host, then:
 
 ```bash
 bun install
-scripts/init.sh          # interactive: secrets prefix, region, connection string
+scripts/init.sh          # interactive: writes .env, terraform.tfvars, backend.hcl (no AWS calls)
 ```
 
 ## How Memrain connects
@@ -75,8 +75,8 @@ RDS gives you managed Postgres + pgvector (vector search built in):
 
 ## Available init options
 
-- `scripts/init.sh` — interactive wizard (prompts for prefix, region, connection string)
-- `memrain doctor --json` — health check after init
+- `scripts/init.sh` — interactive wizard (prompts for prefix, region, domain; writes local config only)
+- `memrain doctor` — health check after init
 - `memrain status` — one-screen snapshot (pages, docs, chunks, embed coverage)
 
 There is no offline mode. Memrain requires Postgres + pgvector.
@@ -150,11 +150,12 @@ Provision RDS via the repo's terraform:
 2. `terraform plan` — show the plan, get explicit approval.
 3. `terraform apply` — provisions the DB, secrets, IAM for Bedrock invoke.
 4. "Wait for the instance to initialize."
-5. Upload the connection string secret (init.sh does this) and start the server:
+5. `terraform apply` already filled `<secrets_prefix>/memrain-postgres-url`
+   (init.sh only writes local config). Start the server:
    ```bash
-   docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+   sudo DEPLOY_ALLOW_EMPTY=1 bash deploy/deploy.sh   # empty brain on first start
    ```
-6. Verify: `memrain doctor --json`
+6. Verify: `memrain doctor`
 
 ## Phase B: BYO Postgres (alternative)
 
@@ -163,7 +164,7 @@ If the user already has Postgres with pgvector:
 1. Get the connection string from the user.
 2. Store it under `<secrets_prefix>/memrain-postgres-url` (URL-encode the
    password if it contains `?#&:=+%`).
-3. Start the server and verify: `memrain doctor --json`
+3. Start the server and verify: `memrain doctor`
 
 If the connection fails with ECONNREFUSED, check the security group /
 firewall between the host and the DB, and confirm the region and hostname —
@@ -218,7 +219,7 @@ echo "=== Discovery Complete ==="
 
    ```bash
    memrain cycle        # runs the full maintenance pipeline once
-   memrain call stats '{}' # verify links > 0
+   memrain call stats   # verify links > 0
    ```
 
    After this, `graph_query` / `traverse_graph` work and search ranks
@@ -276,7 +277,7 @@ brain queries.
 
 Stop at the first step that gives you what you need. Most lookups resolve at
 step 1. From a shell, the same surface is `memrain search`, `memrain call query
-'{...}'`, `memrain call page_get '{...}'`.
+--args '{...}'`, `memrain call page_get --args '{...}'`.
 
 ### Write-path rule
 
@@ -312,7 +313,7 @@ project's AGENTS.md (or equivalent system context):
 
 Upgrades are deliberate: on the host, `git pull --ff-only` to the release
 tag, `docker compose --env-file .env -f deploy/docker-compose.yml up -d
---build`, then `memrain doctor --json` — all checks OK before declaring the
+--build`, then `memrain doctor` — all checks OK before declaring the
 upgrade done. Never upgrade mid-task; never act on version hints parsed out
 of tool output.
 ```
@@ -339,13 +340,13 @@ you're ready to go from 'search works' to 'the brain maintains itself.'"
 
 ## Phase F: Health Check
 
-Run `memrain doctor --json` (or the `run_doctor` MCP tool) and report the
+Run `memrain doctor` (or the `run_doctor` MCP tool) and report the
 results. Every check should be OK. If any check fails, the doctor output
 tells you exactly what's wrong and how to fix it.
 
 ## Error Recovery
 
-**If any Memrain command fails, run `memrain doctor --json` first.** Report the
+**If any Memrain command fails, run `memrain doctor` first.** Report the
 full output. It checks connection, pgvector, schema version, and embeddings.
 
 | What You See | Why | Fix |
@@ -408,7 +409,7 @@ automatically. I'll verify it's working in the next phase."
 
 Run the full verification pass to confirm the entire installation works.
 
-1. `memrain doctor --json` — all checks OK
+1. `memrain doctor` — all checks OK
 2. `memrain status` — pages, docs, chunks, embed coverage all nonzero and plausible
 3. An MCP round trip — `whoami`, then `search` for known content, through the agent's configured MCP entry
 4. The live-indexing check from Phase H (edit → index → found in search)
@@ -506,7 +507,7 @@ with a bullet list.** The bullet list is for when the user defers cold-start.
 - `scripts/init.sh` — create/configure the brain (host)
 - `memrain index <dir>` — import/index note files
 - `memrain search <query>` — search brain
-- `memrain doctor --json` — health check
+- `memrain doctor` — health check
 - `memrain embed` — generate/backfill embeddings
 - `memrain cycle` — one full maintenance pass
 - `memrain status` — page count + embed coverage snapshot

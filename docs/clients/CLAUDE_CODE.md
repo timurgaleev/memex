@@ -81,8 +81,9 @@ unchanged and so are its credentials. Renaming its display name is optional.
 
 3. In Claude Code run `/mcp`, pick `memrain` and sign in in the browser.
 
-If the host runs with `MEMRAIN_OAUTH_REQUIRE_LOGIN=1` (bootstrap sets it on new
-installs), `/authorize` sends the browser to `/admin/login` first, which only
+If the host runs with `MEMRAIN_OAUTH_REQUIRE_LOGIN=1` (bootstrap sets it when
+the `<prefix>/memrain-admin-bootstrap` secret exists; otherwise `/authorize`
+auto-approves), `/authorize` sends the browser to `/admin/login` first, which only
 the operator can pass. For anyone else, use Option A, or give them an
 enrollment-mode client and a code as described in
 [CLAUDE_TEAM.md](./CLAUDE_TEAM.md).
@@ -99,6 +100,7 @@ shell history:
 
 ```bash
 chmod 600 ~/.config/memrain/alice.json
+bun install --frozen-lockfile   # once per checkout
 bun run src/cli.ts auth doctor <issuer> --token-file ~/.config/memrain/alice.json --expect-source alice
 ```
 

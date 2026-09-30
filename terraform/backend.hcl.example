@@ -4,8 +4,12 @@
 # Loaded by:
 #   terraform init -backend-config=backend.hcl
 #
-# The S3 bucket and the DynamoDB lock table (if used) must exist before
-# `terraform init` — bootstrap them by hand the first time.
+# The S3 bucket must exist before `terraform init` — create it by hand the
+# first time, with versioning on (drop the LocationConstraint in us-east-1):
+#   aws s3api create-bucket --bucket <bucket> --region <region> \
+#     --create-bucket-configuration LocationConstraint=<region>
+#   aws s3api put-bucket-versioning --bucket <bucket> \
+#     --versioning-configuration Status=Enabled
 
 bucket  = "your-tfstate-bucket-name"
 # An existing stack keeps its key. Changing it without

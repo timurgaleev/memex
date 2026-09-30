@@ -16,11 +16,11 @@ aws ssm start-session --target <your-instance-id> \
 # the default install clones via HTTPS):
 export GIT_SSH_COMMAND="ssh -i /root/.ssh/<project>_deploy_key \
   -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
-cd /opt/<project> && git pull --ff-only
-cd deploy && docker compose up -d --build memrain
-sleep 25
-docker compose ps memrain
-docker compose logs --tail 25 memrain
+# (ssm-user is not in the docker group and the checkout is root-owned: sudo)
+cd /opt/<project> && sudo git pull --ff-only
+sudo bash deploy/deploy.sh   # stamps the image, builds, waits for healthy
+sudo docker compose --env-file .env ps memrain
+sudo docker compose --env-file .env logs --tail 25 memrain
 ```
 
 First boot pulls + builds; subsequent rebuilds are ~30 s warm.
@@ -28,7 +28,7 @@ First boot pulls + builds; subsequent rebuilds are ~30 s warm.
 ## Health probes
 
 ```bash
-# operational probe (the only HTTP route besides /mcp):
+# operational probe (full route list in API.md):
 docker exec deploy-memrain-1 wget -qO- http://127.0.0.1:18790/health
 # → {"ok":true,"db":"postgres","version":"0.1.0",
 #     "stats":{"documents":114,"chunks":244,"embeddings":244}}
@@ -51,8 +51,8 @@ docker exec deploy-memrain-1 bun run src/cli.ts integrity --vault /memory
 
 ```bash
 cd deploy/memrain
-bun install
-bun test               # 120 tests, ~140 s wall-clock
+bun install --frozen-lockfile
+bun run test:sharded   # never a bare `bun test`: PGLite runs out of WASM heap
 bun run src/cli.ts --help
 ```
 
@@ -82,13 +82,11 @@ Notable log lines to look for:
 ## Trigger a cycle manually
 
 The cycle ticks automatically every `MEMRAIN_DREAM_INTERVAL_S` (6 h
-default). To force a tick, restart the container — the first tick
-fires after one full interval, OR drop interval and restart:
+default). A restart does not fire a tick early. To run one cycle now:
 
 ```bash
-# one-shot via CLI (uses migrate-engine machinery; for actual cycle,
-# the recipe runs in-daemon — restart memrain to retrigger):
-docker compose restart memrain
+# one full cycle, or a subset with --phases a,b (shares the daemon's lock):
+docker exec deploy-memrain-1 bun run src/cli.ts cycle [--phases a,b]
 ```
 
 For a one-shot manual run of any single phase, use the corresponding

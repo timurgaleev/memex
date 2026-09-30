@@ -181,7 +181,7 @@ unit references a script that exists in the repo.
 └── memrain/                       # Memrain runtime config + soul templates
 
 /opt/<project>/                    # repo checkout (cloned by bootstrap.sh)
-├── .env                           # rendered by bootstrap.sh on every boot
+├── .env                           # rendered by bootstrap.sh on first boot (re-run by hand via SSM)
 ├── deploy/                        # compose + container build contexts
 ├── scripts/                       # bootstrap, init, audit, helpers
 └── terraform/                     # infra-as-code
@@ -189,7 +189,7 @@ unit references a script that exists in the repo.
 
 The "code source" mount at `/mnt/<project>-efs/<project>-repo/` is a
 second git checkout used by the Memrain code chunkers as their index
-source. `scripts/bootstrap.sh` keeps it in sync on every boot.
+source. `scripts/bootstrap.sh` clones it on first boot; re-run it via SSM to resync.
 
 The authoritative store is RDS Postgres, evolved by the numbered
 migration runner (`core/migrate.ts`, through 119). Beyond the core
