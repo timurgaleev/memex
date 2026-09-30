@@ -57,7 +57,7 @@ data "aws_iam_policy_document" "memrain_custom" {
       "arn:aws:bedrock:*::foundation-model/amazon.nova-*",
       "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5*",
       # Claude Sonnet 4.6 — the paid model behind the opt-in, default-OFF
-      # conversation->facts extractor (MEMEX_FACTS_MODEL). Stays region-locked
+      # conversation->facts extractor (MEMRAIN_FACTS_MODEL). Stays region-locked
       # via the BedrockDenyOffRegion statement below, same posture as Haiku.
       "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6*",
 
@@ -128,7 +128,7 @@ data "aws_iam_policy_document" "memrain_custom" {
   }
 
   # Secrets Manager: write only the public-bearer secret, used by the
-  # daily rotation timer (deploy/systemd/memex-rotate-bearer.timer).
+  # daily rotation timer (deploy/systemd/memrain-rotate-bearer.timer).
   # Scoped to this single ARN — every other secret stays read-only.
   statement {
     sid    = "SecretsRotatePublicBearer"

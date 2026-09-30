@@ -109,6 +109,40 @@ Bedrock + Secrets Manager, and (by default) CloudTrail.
 The RDS instance has `deletion_protection = true` and takes a final snapshot —
 `terraform destroy` will not silently drop your index.
 
+### Deletion protection
+
+Terraform sets `lifecycle { prevent_destroy = true }` on every resource that
+holds data or that clients depend on:
+
+- the RDS instance (`aws_db_instance`) and its subnet group (`aws_db_subnet_group`),
+- the EFS file system (`aws_efs_file_system`),
+- the EC2 instance (`aws_instance`) and its Elastic IP (`aws_eip`, a caddy
+  install's DNS points at it),
+- every Secrets Manager secret (`aws_secretsmanager_secret`; they are created
+  with `recovery_window_in_days = 0`, so a destroy would delete at once),
+- the scripts and CloudTrail buckets (`aws_s3_bucket`).
+
+A plan that would destroy or replace one of them **errors before apply**. That
+is the intent: a renamed variable or a changed default must never delete the
+database, the file system or a secret. When a plan fails this way, pin the
+name that changed (UPGRADING step 0) instead of removing the guard.
+
+`prevent_destroy` does not cover in-place updates. The RDS identifier is one:
+an unpinned `rds_identifier` (or a changed `project_name`/`app_slug` behind it)
+renames the instance in place, with no destroy for the guard to catch. The
+endpoint changes, while the stored Postgres URL secret keeps the old host, so
+the app loses its database. Read every plan before applying it; UPGRADING
+step 0 lists the only changes an upgrade plan may show.
+
+A deliberate teardown (`terraform destroy`, `make destroy`) needs a local edit
+that is never committed:
+
+1. Take a final backup first: an RDS snapshot, a copy of the EFS data
+   directory, and a copy of every secret value you cannot regenerate.
+2. Remove the `prevent_destroy` lines from the resources you are tearing down.
+3. Set `deletion_protection = false` on the RDS instance and apply that change.
+4. Run the destroy, then discard the local edit.
+
 ---
 
 ## 4. Fill the one empty secret

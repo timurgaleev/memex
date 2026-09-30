@@ -27,9 +27,9 @@ locals {
 
   key_pair_name = coalesce(var.key_pair_name, "${var.project_name}-key")
 
-  postgres_url_secret_name   = coalesce(var.postgres_url_secret_name, "${var.secrets_prefix}/memex-postgres-url")
-  public_bearer_secret_name  = coalesce(var.public_bearer_secret_name, "${var.secrets_prefix}/memex-public-bearer")
-  internal_token_secret_name = coalesce(var.internal_token_secret_name, "${var.secrets_prefix}/memex-internal-token")
+  postgres_url_secret_name   = coalesce(var.postgres_url_secret_name, "${var.secrets_prefix}/memrain-postgres-url")
+  public_bearer_secret_name  = coalesce(var.public_bearer_secret_name, "${var.secrets_prefix}/memrain-public-bearer")
+  internal_token_secret_name = coalesce(var.internal_token_secret_name, "${var.secrets_prefix}/memrain-internal-token")
   tunnel_token_secret_name   = coalesce(var.tunnel_token_secret_name, "${var.secrets_prefix}/cloudflared-tunnel-token")
   deploy_key_secret_name     = coalesce(var.deploy_key_secret_name, "${var.secrets_prefix}/github-deploy-key")
 

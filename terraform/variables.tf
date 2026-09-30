@@ -43,17 +43,17 @@ variable "github_owner" {
 variable "repo_name" {
   description = "Public repo name. Used for tagging, S3 keys, and tfstate path prefix."
   type        = string
-  default     = "memex"
+  default     = "memrain"
 }
 
 variable "secrets_prefix" {
   description = <<-EOT
     AWS Secrets Manager prefix. Every secret created by this stack is named
-    '<secrets_prefix>/<secret-name>'. Default 'memex' aligns with the project
+    '<secrets_prefix>/<secret-name>'. Default 'memrain' aligns with the project
     name; override if you need a different namespace (e.g. per-environment).
   EOT
   type        = string
-  default     = "memex"
+  default     = "memrain"
 }
 
 variable "use_ssh_deploy_key" {
@@ -85,9 +85,9 @@ variable "ssh_public_key" {
 }
 
 variable "project_name" {
-  description = "Project name used for AWS resource naming + on-host paths (/mnt/<project>-efs/<project>, /opt/<project>). Defaults to memex; override if your install needs a different prefix."
+  description = "Project name used for AWS resource naming + on-host paths (/mnt/<project>-efs/<project>, /opt/<project>). Defaults to memrain; override if your install needs a different prefix. Changing it on an existing stack renames ~20 ForceNew resources; pin every name first (UPGRADING step 0)."
   type        = string
-  default     = "memex"
+  default     = "memrain"
 }
 
 variable "instance_type" {
@@ -159,7 +159,7 @@ variable "bedrock_allowed_regions" {
 variable "bedrock_model_id" {
   description = <<-EOT
     Amazon Bedrock CRIS inference profile ID surfaced in the `bedrock_model`
-    terraform output. Informational: memex's utility tier is pinned in code
+    terraform output. Informational: Memrain's utility tier is pinned in code
     (eu.anthropic.claude-haiku-4-5, with Titan Embed V2 for embeddings and
     eu.anthropic.claude-sonnet-4-6 behind the paid feature flags) — this
     variable does not change what the brain calls. Keep it in sync with the
@@ -169,7 +169,7 @@ variable "bedrock_model_id" {
 
     Switch via: terraform apply -var='bedrock_model_id=...'
 
-    === Anthropic Claude — what memex runs on ===
+    === Anthropic Claude — what Memrain runs on ===
       eu.anthropic.claude-haiku-4-5-20251001  — Haiku 4.5, utility tier (default; ~$2-3/mo)
       eu.anthropic.claude-sonnet-4-6          — Sonnet 4.6, paid slices (~$15-25/mo)
 
@@ -303,19 +303,19 @@ variable "repo_url" {
 variable "app_slug" {
   description = "Application slug in the RDS names (<project_name>-<app_slug>). Pin it on an existing stack before changing it: the RDS identifier, subnet group and parameter group derive from it."
   type        = string
-  default     = "memex"
+  default     = "memrain"
 }
 
 variable "db_name" {
   description = "Name of the Postgres database created with the RDS instance. ForceNew in the provider, so terraform ignores changes to it once the instance exists; rename an existing database in SQL."
   type        = string
-  default     = "memex"
+  default     = "memrain"
 }
 
 variable "db_username" {
   description = "RDS master user name. AWS cannot rename a master user, so terraform ignores changes to it once the instance exists."
   type        = string
-  default     = "memex"
+  default     = "memrain"
 }
 
 variable "rds_apply_immediately" {
@@ -445,19 +445,19 @@ variable "key_pair_name" {
 }
 
 variable "postgres_url_secret_name" {
-  description = "Full Secrets Manager name of the Postgres URL secret. null derives <secrets_prefix>/memex-postgres-url."
+  description = "Full Secrets Manager name of the Postgres URL secret. null derives <secrets_prefix>/memrain-postgres-url."
   type        = string
   default     = null
 }
 
 variable "public_bearer_secret_name" {
-  description = "Full Secrets Manager name of the public bearer secret. null derives <secrets_prefix>/memex-public-bearer."
+  description = "Full Secrets Manager name of the public bearer secret. null derives <secrets_prefix>/memrain-public-bearer."
   type        = string
   default     = null
 }
 
 variable "internal_token_secret_name" {
-  description = "Full Secrets Manager name of the internal token secret. null derives <secrets_prefix>/memex-internal-token."
+  description = "Full Secrets Manager name of the internal token secret. null derives <secrets_prefix>/memrain-internal-token."
   type        = string
   default     = null
 }

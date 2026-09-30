@@ -1,13 +1,13 @@
 """
 Asserts terraform/iam.tf grants Bedrock invoke for the two new foundation
-models the memex runtime needs:
+models the Memrain runtime needs:
 
   - amazon.titan-embed-text-v2:0    (embeddings — credit-eligible)
   - anthropic.claude-haiku-4-5*     (Tier A escalation — paid)
 
 Existing Nova permissions stay intact. We do NOT use bedrock:* wildcards.
 
-Run: python3 -m pytest tests/test_memex_iam.py -v
+Run: python3 -m pytest tests/test_memrain_iam.py -v
 """
 from __future__ import annotations
 

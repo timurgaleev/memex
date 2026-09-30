@@ -105,7 +105,7 @@ Secrets Manager (via `fetch-secrets.sh`), not the compose allowlist.
 | `MEMEX_PUBLIC_BEARER` | *(none)* | Static bearer token accepted on public `/mcp` requests. Injected from `<prefix>/memex-public-bearer`. It carries no tenant and reaches only the public read subset, so give people a personal access token (`memex auth create <name> --source <src>`) or an OAuth client instead. `deploy/systemd` ships a rotation timer that bootstrap does not install. | free |
 | `MEMEX_INTERNAL_TOKEN` | *(none)* | Shared bearer authenticating peer containers on the internal docker bridge to memex's mutating routes. From `<prefix>/memex-internal-token`. | free |
 | `MEMEX_HOST` | `127.0.0.1` | Bind host / public hostname for the server. `init.sh` sets it to `<subdomain>.<domain>`; the CLI `--host` flag overrides. | free |
-| `MEMEX_SUBDOMAIN` | `brain` | The public MCP subdomain. Consumed by `init.sh`/`bootstrap.sh` to compose `MEMEX_HOST`; it is *not* read directly by the server at runtime (the terraform var `memex_subdomain` is the source of truth). | free |
+| `MEMEX_SUBDOMAIN` | `brain` | The public MCP subdomain. Consumed by `init.sh`/`bootstrap.sh` to compose `MEMEX_HOST`; it is *not* read directly by the server at runtime (the terraform var `subdomain` is the source of truth). | free |
 | `MEMEX_VAULT_PATHS` | `/memory` (compose) | CSV of directory roots the indexer may sweep and the path-guard treats as in-bounds. Mounted read-only into the container. | free |
 | `MEMEX_CODE_PATHS` | `/repo-source` (compose) | CSV of repo checkouts the code-chunkers index (call/def/ref graph). Empty → boot warns "0 indexable files" and continues. | free |
 | `MEMEX_VAULT_PATH` | unset | Single vault path for `reindex` and `integrity` when no `--vault` flag is given, and for `doctor`'s vault check. It takes precedence over `storage.vault` in the config file. Code-only; the server sweeps `MEMEX_VAULT_PATHS`. | free |
@@ -650,13 +650,20 @@ schema in `terraform/variables.tf`.
 | `aws_profile` | `default` | AWS CLI profile (matches `~/.aws/config`). |
 | `tfstate_region` | `eu-central-1` | Region of the S3 bucket holding terraform state (often differs from `aws_region`). |
 | `domain` | `""` | Public root domain (e.g. `example.com`). Used by the Cloudflare Tunnel and OAuth flows. |
-| `memex_subdomain` | `brain` | Subdomain serving the public MCP (e.g. `brain` → `brain.example.com`). |
+| `subdomain` | `brain` | Subdomain serving the public MCP (e.g. `brain` → `brain.example.com`). |
+| `memex_subdomain` | `null` | DEPRECATED alias of `subdomain`; when set it still wins, and a `check` warns. Removed in 1.1.0. |
 | `github_owner` | `""` | GitHub username/org owning the public repo. |
-| `repo_name` | `memex` | Public repo name; used for tags, S3 keys, tfstate prefix. |
-| `secrets_prefix` | `memex` | Secrets Manager namespace — every secret is `<secrets_prefix>/<name>`. |
+| `repo_name` | `memrain` | Public repo name; used for tags, S3 keys, tfstate prefix. |
+| `secrets_prefix` | `memrain` | Secrets Manager namespace — every secret is `<secrets_prefix>/<name>`. |
 | `use_ssh_deploy_key` | `false` | Only true while migrating from a private SSH-clone flow. Public installs leave false (HTTPS clone). |
 | `ssh_public_key` | `""` | Public key to register as the EC2 key pair. Empty skips key-pair creation (SSM replaces SSH). |
-| `project_name` | `memex` | Prefix for AWS resource names + on-host paths (`/opt/<project>`, `/mnt/<project>-efs`). |
+| `project_name` | `memrain` | Prefix for AWS resource names + on-host paths (`/opt/<project>`, `/mnt/<project>-efs`). Changing it on an existing stack renames about 20 ForceNew resources: pin every name first (UPGRADING step 0). |
+| `app_slug` | `memrain` | Application slug in the RDS names (`<project_name>-<app_slug>`): instance identifier, subnet group, parameter group. |
+| `db_name` | `memrain` | Postgres database created with the RDS instance. Ignored once the instance exists (ForceNew); rename an existing database in SQL. |
+| `db_username` | `memrain` | RDS master user. Ignored once the instance exists (AWS cannot rename it). |
+| `rds_apply_immediately` | `false` | Apply RDS modifications now instead of in the next maintenance window. Set true only for the apply that needs it. |
+| `efs_creation_token` | `null` → `<project_name>-data` | EFS creation token. Immutable on an existing file system: pin the current value. |
+| `secrets_read_prefixes` | `[]` → `[secrets_prefix]` | Secret prefixes the instance role may read. List a second one while secrets move between prefixes. |
 | `instance_type` | `t4g.medium` | EC2 instance type (Graviton ARM64). Must be ARM64-compatible unless you also change the AMI filter. |
 | `ebs_volume_size` | `20` | Root EBS volume size (GB). |
 | `vpc_cidr` | `10.0.0.0/16` | VPC CIDR block. |
@@ -676,3 +683,36 @@ schema in `terraform/variables.tf`.
 > Claude Haiku for the utility tier (built-in default; `MEMEX_UTILITY_MODEL` is
 > code-only, not in the compose allowlist) and Claude Sonnet for the paid slices
 > (`MEMEX_FACTS_MODEL`). Amazon Nova was removed from the request path.
+
+### Resource name variables
+
+Every AWS resource name resolves through a variable that defaults to `null`,
+which derives the name as shown (`<p>` is `project_name`, `<acct>` the AWS
+account id). A new install leaves them unset. An install created before the
+rename pins each one to its current value (UPGRADING step 0): most of these
+names are ForceNew, and the data-bearing resources carry `prevent_destroy`.
+
+| Variable | Derived default |
+|---|---|
+| `rds_identifier` | `<p>-<app_slug>` |
+| `db_subnet_group_name` | `<p>-<app_slug>` |
+| `db_parameter_group_name` | `<p>-<app_slug>-pg16` |
+| `ec2_sg_name` | `<p>-sg` |
+| `rds_sg_name` | `<p>-rds` |
+| `efs_sg_name` | `<p>-efs-sg` |
+| `vpc_endpoints_sg_name` | `<p>-vpc-endpoints-sg` |
+| `iam_role_name` | `<p>-role` |
+| `instance_profile_name` | `<p>-instance-profile` |
+| `custom_policy_name` | `<p>-custom-policy` |
+| `efs_client_policy_name` | `<p>-efs-client` |
+| `log_group_name` | `/<p>/app` |
+| `sns_topic_name` | `<p>-alarms` |
+| `scripts_bucket_name` | `<p>-scripts-<acct>` |
+| `cloudtrail_bucket_name` | `<p>-cloudtrail-<acct>` |
+| `cloudtrail_name` | `<p>-trail` |
+| `key_pair_name` | `<p>-key` |
+| `postgres_url_secret_name` | `<secrets_prefix>/memrain-postgres-url` |
+| `public_bearer_secret_name` | `<secrets_prefix>/memrain-public-bearer` |
+| `internal_token_secret_name` | `<secrets_prefix>/memrain-internal-token` |
+| `tunnel_token_secret_name` | `<secrets_prefix>/cloudflared-tunnel-token` |
+| `deploy_key_secret_name` | `<secrets_prefix>/github-deploy-key` |

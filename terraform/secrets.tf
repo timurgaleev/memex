@@ -54,7 +54,7 @@ resource "aws_secretsmanager_secret" "github_deploy_key" {
   }
 }
 
-# Bearer token for the public Cloudflare Tunnel ingress to memex
+# Bearer token for the public Cloudflare Tunnel ingress to Memrain
 # (brain.<domain>). Read-side only — /index and /friction are blocked
 # from public regardless of bearer; mutating MCP tools are filtered
 # server-side. Generated as a random 48-char string at apply time and
@@ -73,7 +73,7 @@ resource "random_password" "memrain_public_bearer" {
 
 resource "aws_secretsmanager_secret" "memrain_public_bearer" {
   name                    = local.public_bearer_secret_name
-  description             = "Bearer token for the public Cloudflare Tunnel ingress to memex (read-only routes)"
+  description             = "Bearer token for the public Cloudflare Tunnel ingress (read-only routes)"
   recovery_window_in_days = 0
 
   lifecycle {
@@ -94,8 +94,8 @@ resource "aws_secretsmanager_secret_version" "memrain_public_bearer" {
   }
 }
 
-# memex-internal-token — shared secret authenticating any future peer
-# container on the internal docker bridge to memex's MCP write tools.
+# memrain-internal-token — shared secret authenticating any future peer
+# container on the internal docker bridge to Memrain's MCP write tools.
 # Without it, a compromised sibling container could write to the index
 # with no auth — the gate keys on `Cf-Connecting-Ip` presence only,
 # which is exactly the header those peers never send. See
@@ -111,7 +111,7 @@ resource "random_password" "memrain_internal_token" {
 
 resource "aws_secretsmanager_secret" "memrain_internal_token" {
   name                    = local.internal_token_secret_name
-  description             = "Shared bearer authenticating peer containers to memex's internal mutating routes"
+  description             = "Shared bearer authenticating peer containers to the internal mutating routes"
   recovery_window_in_days = 0
 
   lifecycle {

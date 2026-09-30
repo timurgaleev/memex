@@ -1,11 +1,11 @@
 # ---------------------------------------------------------------------------
-# RDS Postgres for memex.
+# RDS Postgres for Memrain.
 #
 # - db.t4g.micro running Postgres 16 with pgvector + pg_trgm.
 # - Subnet group spans the public subnets in the configured AZs (RDS needs
 #   ≥2). Network exposure restricted via SG: only the stack EC2's SG can
 #   reach 5432. No NAT — the single-instance threat model is tolerable.
-# - Connection URL written to Secrets Manager <prefix>/memex-postgres-url
+# - Connection URL written to Secrets Manager <prefix>/memrain-postgres-url
 #   on first apply; fetch-secrets.sh reads it back at boot.
 # - Storage 20 GiB gp3, encrypted with the default AWS-managed KMS key.
 # - Backup retention 7 days; deletion-protection ON so a stray
@@ -16,7 +16,7 @@
 
 resource "aws_security_group" "rds" {
   name        = local.rds_sg_name
-  description = "RDS Postgres for memex - only the EC2 SG can reach 5432"
+  description = "RDS Postgres - only the EC2 SG can reach 5432"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -65,7 +65,7 @@ resource "aws_db_subnet_group" "memrain" {
 resource "aws_db_parameter_group" "memrain_pg16" {
   name        = local.db_parameter_group_name
   family      = "postgres16"
-  description = "Postgres 16 params for memex - pgvector + pg_trgm preloaded as needed"
+  description = "Postgres 16 params - pgvector + pg_trgm preloaded as needed"
 
   # Surface query timing to logs at >1s (cheap signal in CloudWatch).
   parameter {
@@ -149,7 +149,7 @@ resource "aws_db_instance" "memrain" {
 
 resource "aws_secretsmanager_secret" "memrain_postgres_url" {
   name                    = local.postgres_url_secret_name
-  description             = "Postgres connection URL for the memex RDS — fetched at container start by fetch-secrets.sh into MEMEX_POSTGRES_URL env"
+  description             = "Postgres connection URL for the RDS instance — fetched at container start by fetch-secrets.sh into MEMRAIN_POSTGRES_URL env"
   recovery_window_in_days = 0
 
   lifecycle {

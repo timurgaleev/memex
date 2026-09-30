@@ -48,7 +48,7 @@ Only the operator. Access is gated behind:
 
 - AWS IAM policies scoped to the operator's account.
 - A bearer token for the public read API at
-  `<memex_subdomain>.<your-domain>`, optionally rotated daily by the
+  `<subdomain>.<your-domain>`, optionally rotated daily by the
   `memex-rotate-bearer` systemd timer.
 - A Cloudflare Tunnel that fronts the EC2 instance — the underlying
   host has no public IP.

@@ -280,3 +280,47 @@ def test_output_aliases_kept() -> None:
     arns = _block(text, r'output\s+"secret_arns"')
     for key in ("postgres_url", "public_bearer", "memex_postgres_url", "memex_public_bearer"):
         assert re.search(rf"^\s*{key}\s*=", arns, re.MULTILINE), key
+
+
+# --- new-install defaults and docs -----------------------------------------
+
+def test_new_install_defaults_are_memrain() -> None:
+    for var in ("project_name", "secrets_prefix", "repo_name", "app_slug",
+                "db_name", "db_username"):
+        assert re.search(r'default\s*=\s*"memrain"', _variable(var)), var
+    names = (TF_DIR / "names.tf").read_text()
+    for leaf in ("postgres-url", "public-bearer", "internal-token"):
+        assert f'"${{var.secrets_prefix}}/memrain-{leaf}"' in names, leaf
+
+
+def test_derived_names_carry_no_memex() -> None:
+    names = (TF_DIR / "names.tf").read_text()
+    derived = re.findall(r"^\s*\w+\s*=\s*coalesce\(var\.\w+,\s*(.+)\)\s*$", names, re.MULTILINE)
+    assert len(derived) == len(NAME_VARS), derived
+    for expr in derived:
+        assert "memex" not in expr, expr
+    # Outside the moved-from addresses and the deprecated aliases, no name
+    # literal may still carry the old brand.
+    for path in sorted(TF_DIR.glob("*.tf")):
+        if path == MOVED:
+            continue
+        for lit in re.findall(r'"([^"\n]*)"', path.read_text()):
+            assert "-memex" not in lit and "memex-" not in lit, f"{path.name}: {lit}"
+
+
+def test_backend_example_key_and_warning() -> None:
+    text = (TF_DIR / "backend.hcl.example").read_text()
+    assert re.search(r'^key\s*=\s*"memrain/terraform\.tfstate"$', text, re.MULTILINE)
+    assert "init -migrate-state" in text
+    assert "existing stack keeps its key" in text
+
+
+def test_deployment_doc_names_every_guarded_resource() -> None:
+    doc = (REPO / "docs" / "DEPLOYMENT.md").read_text()
+    m = re.search(r"^### Deletion protection\n(.*?)(?=^#{2,3} )", doc, re.MULTILINE | re.DOTALL)
+    assert m, "docs/DEPLOYMENT.md has no 'Deletion protection' subsection"
+    section = m.group(1)
+    for rtype in ("aws_db_instance", "aws_db_subnet_group", "aws_efs_file_system",
+                  "aws_instance", "aws_eip", "aws_secretsmanager_secret", "aws_s3_bucket"):
+        assert f"`{rtype}`" in section, rtype
+    assert "prevent_destroy" in section and "deletion_protection = false" in section

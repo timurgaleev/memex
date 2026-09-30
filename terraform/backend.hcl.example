@@ -8,7 +8,9 @@
 # `terraform init` — bootstrap them by hand the first time.
 
 bucket  = "your-tfstate-bucket-name"
-key     = "memex/terraform.tfstate"
+# An existing stack keeps its key. Changing it without
+# `terraform init -migrate-state` starts from an empty state.
+key     = "memrain/terraform.tfstate"
 region  = "eu-central-1"
 encrypt = true
 profile = "default"
