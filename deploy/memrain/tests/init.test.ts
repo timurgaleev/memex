@@ -52,7 +52,12 @@ test("loadConfig rejects missing path", () => {
   expect(() => loadConfig(fake)).toThrow(/not found/);
 });
 
-test("defaultConfigPath returns ~/.memex/config.json", () => {
-  const p = defaultConfigPath();
-  expect(p.endsWith(".memex/config.json")).toBe(true);
+test("defaultConfigPath returns ~/.memrain/config.json on a fresh home", () => {
+  // An empty home and env: the real ~ may hold a legacy ~/.memex install.
+  const home = mkdtempSync(join(tmpdir(), "tb-home-"));
+  try {
+    expect(defaultConfigPath({}, home)).toBe(join(home, ".memrain", "config.json"));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });

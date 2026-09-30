@@ -41,6 +41,7 @@ chmod +x "$BIN/docker" "$BIN/mount"
 # guard FUNC ARGS... -> runs one guard in a clean shell; output in $OUT.
 OUT="$TMPROOT/out.log"
 guard() {
+  # shellcheck disable=SC2016 # $1 and $@ expand in the child shell
   env PATH="$BIN:$PATH" bash -c '. "$1"; shift; "$@"' _ "$REPO_ROOT/deploy/lib/legacy-guard.sh" "$@" > "$OUT" 2>&1
 }
 
