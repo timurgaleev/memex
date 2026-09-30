@@ -73,20 +73,20 @@ Use one consolidated entry instead of N per-directory entries:
 **Preferred (consolidated)**:
 
 ```cron
-*/30 * * * * memex reindex
+*/30 * * * * memrain reindex
 ```
 
 One line covers the whole corpus and auto-picks-up new note directories
 without a crontab edit. Mind the concurrency budget: keep parallel
 indexing waves under your Postgres `max_connections` setting.
 
-**Avoid (legacy)**: separate per-directory `memex index <path>` entries
+**Avoid (legacy)**: separate per-directory `memrain index <path>` entries
 staggered by 5 minutes. They require manual deconfliction every time a
 new directory appears, and a slow directory can race a fast one on the
 index lock — the per-directory pattern gets none of the parallelism a
 consolidated reindex actually delivers.
 
-`memex doctor` (or the `run_doctor` tool) surfaces indexing-health
+`memrain doctor` (or the `run_doctor` tool) surfaces indexing-health
 checks; consult it before adding any new indexing entry.
 
 ## Anti-Patterns
@@ -96,6 +96,6 @@ checks; consult it before adding any new indexing entry.
 - Running scheduled jobs without testing on 3-5 items first
 - Jobs that produce different output on re-run (not idempotent)
 - Sending notifications during quiet hours (save to held queue instead)
-- Separate per-directory `memex index` entries when one `memex reindex`
+- Separate per-directory `memrain index` entries when one `memrain reindex`
   line would replace them and auto-pick-up future directories
 - Scheduling maintenance the brain's background cycle already performs

@@ -1,11 +1,11 @@
-# Running memex for a team
+# Running Memrain for a team
 
 How to take a working single-operator brain and put several people on it, each
 with their own private space. Task-oriented; the knob-by-knob reference lives in
 [CONFIGURATION.md](./CONFIGURATION.md), the install in
 [DEPLOYMENT.md](./DEPLOYMENT.md).
 
-Everything here assumes memex is already deployed and healthy. Per-client
+Everything here assumes Memrain is already deployed and healthy. Per-client
 checklists live in [docs/clients/](./clients/):
 [Claude Team/Enterprise](./clients/CLAUDE_TEAM.md),
 [claude.ai Pro/Max](./clients/CLAUDE_AI.md), [ChatGPT](./clients/CHATGPT.md),
@@ -16,7 +16,7 @@ checklists live in [docs/clients/](./clients/):
 ## Pick the shape first
 
 There are two ways a person's tenant gets decided, and the right one depends on
-something outside memex: **who is allowed to add a connector in your chat
+something outside Memrain: **who is allowed to add a connector in your chat
 client.**
 
 | | Per-person clients | One connector + enrollment codes |
@@ -60,22 +60,22 @@ isolation on the honour system.
 ### 1. A source per person
 
 ```bash
-memex sources register alice --kind other --path-prefix tenant:alice
-memex sources register bob   --kind other --path-prefix tenant:bob
+memrain sources register alice --kind other --path-prefix tenant:alice
+memrain sources register bob   --kind other --path-prefix tenant:bob
 ```
 
 ### 2. One connector, in enrollment mode
 
 ```bash
-memex auth register-client team-connector \
+memrain auth register-client team-connector \
   --tenant-mode enrollment \
   --scopes 'read write' --source default \
   --redirect-uris 'https://<chat-host>/api/mcp/auth_callback,https://<alt-host>/api/mcp/auth_callback'
-memex auth set-budget <client_id|token_name|enrollment_id> 2.00
+memrain auth set-budget <client_id|token_name|enrollment_id> 2.00
 ```
 
 Prints the client ID and secret **once**. Register every callback origin the
-client might use. `memex auth set-redirect-uris <client_id> <uri>...` replaces
+client might use. `memrain auth set-redirect-uris <client_id> <uri>...` replaces
 the list later without touching the secret or issued tokens.
 
 `--source default` here is only the fallback for a grant that names nothing; an
@@ -84,8 +84,8 @@ enrolled session always overrides it.
 ### 3. A code per person
 
 ```bash
-memex auth enroll alice --label alice --client <client_id> --ttl 30d
-memex auth enroll bob   --label bob   --client <client_id> --ttl 30d
+memrain auth enroll alice --label alice --client <client_id> --ttl 30d
+memrain auth enroll bob   --label bob   --client <client_id> --ttl 30d
 ```
 
 Each prints a code **once**. Single-use, expiring, revocable; only its SHA-256
@@ -119,7 +119,7 @@ and that is fine — but only because of one specific property, which is worth
 verifying rather than assuming:
 
 ```bash
-memex auth list-clients | grep -A2 '"client_name": "team-connector"'
+memrain auth list-clients | grep -A2 '"client_name": "team-connector"'
 # grant_types must be ["authorization_code","refresh_token"] — NOT client_credentials
 ```
 
@@ -145,7 +145,7 @@ one atomic `UPDATE`, so two people racing the same code cannot both win.
 
 ## The login gate
 
-`MEMEX_OAUTH_REQUIRE_LOGIN=1` — which bootstrap writes into **every new
+`MEMRAIN_OAUTH_REQUIRE_LOGIN=1` — which bootstrap writes into **every new
 install** — gates `/authorize` on a signed-in operator.
 
 `/admin/login` accepts exactly one credential: the operator bootstrap token.
@@ -165,14 +165,14 @@ else; take it off otherwise.
 ## Day-2 operations
 
 ```bash
-memex auth enrollments [--client <client_id>]   # id, label, source, expiry, used/revoked, last token — never the code
-memex auth revoke-enrollment <id>        # kill a code that leaked before it was used
-memex auth revoke-grant <id>             # cut off one person who already redeemed a code
-memex auth enroll --replaces <id>        # new code for the same person; keeps source, spend key and cap
-memex auth enroll alice --label alice --client <client_id> --ttl 30d   # a code for someone new
-memex auth list-clients                  # who exists, in which mode, on which source
-memex auth set-budget <client_id|token_name|enrollment_id> 2.00   # daily USD ceiling; 'none' removes it
-memex auth revoke-client <client_id>     # cut a connector off entirely
+memrain auth enrollments [--client <client_id>] # id, label, source, expiry, used/revoked, last token — never the code
+memrain auth revoke-enrollment <id>      # kill a code that leaked before it was used
+memrain auth revoke-grant <id>           # cut off one person who already redeemed a code
+memrain auth enroll --replaces <id>      # new code for the same person; keeps source, spend key and cap
+memrain auth enroll alice --label alice --client <client_id> --ttl 30d # a code for someone new
+memrain auth list-clients                # who exists, in which mode, on which source
+memrain auth set-budget <client_id|token_name|enrollment_id> 2.00 # daily USD ceiling; 'none' removes it
+memrain auth revoke-client <client_id>   # cut a connector off entirely
 ```
 
 The admin panel does the same without an SSM session: **Credentials**, then
@@ -180,21 +180,21 @@ The admin panel does the same without an SSM session: **Credentials**, then
 redeemed, revoked, last token) with **Revoke code**, **Revoke grant**, **New
 code** and **Issue code**. Every change is audited with who made it.
 
-**Someone leaves.** `memex auth revoke-grant <enrollment_id>` (or **Revoke
+**Someone leaves.** `memrain auth revoke-grant <enrollment_id>` (or **Revoke
 grant**) revokes their enrollment and deletes every token minted under it, in
 one transaction; everyone else on the connector keeps working. For a code they
-never used, `memex auth revoke-enrollment <id>` is enough. Their source keeps
-their notes, and `memex sources delete` refuses while any content or live grant
+never used, `memrain auth revoke-enrollment <id>` is enough. Their source keeps
+their notes, and `memrain sources delete` refuses while any content or live grant
 still names it — it prints what is holding the reference rather than orphaning
 a credential, so cleaning up data is deliberate work, not one command.
 
 **Someone lost their connection.** A broken refresh chain or a new device
-needs a new code: `memex auth enroll --replaces <enrollment_id>` keeps their
+needs a new code: `memrain auth enroll --replaces <enrollment_id>` keeps their
 source, read set, spend key and daily cap. The old grant keeps working until
 the new code is redeemed, then it is revoked.
 
 **Budgets are per person.** A token redeemed from an enrollment code spends
-under that enrollment; `memex auth set-budget <enrollment_id> <usd>` caps one
+under that enrollment; `memrain auth set-budget <enrollment_id> <usd>` caps one
 person. Without such a cap, the connector's `budget_usd_per_day` applies to each
 person separately.
 
@@ -208,18 +208,18 @@ the fastest way to confirm an enrollment did what you meant.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `redirect_uri is not registered for this client` | the callback origin was never registered; hosts differ between a vendor's domains | `memex auth set-redirect-uris <client_id> <uri>...` with every origin |
+| `redirect_uri is not registered for this client` | the callback origin was never registered; hosts differ between a vendor's domains | `memrain auth set-redirect-uris <client_id> <uri>...` with every origin |
 | Person sees an admin login, not a code field | the client is in `client` mode with the login gate on | `rescope-client … --tenant-mode enrollment`, or take the gate off |
 | `That code was not accepted` | used, expired, revoked, or issued for another client — deliberately indistinguishable | `auth enrollments` shows which; re-issue |
 | Person lands in the wrong space | codes were swapped at handover | revoke, re-issue, hand over again |
 | `budget_exhausted` on search or think | the connector hit its daily ceiling | raise it, or wait for the UTC day to roll |
-| Writes succeed but nothing is findable | budget ran out mid-index: the note is stored unembedded, on purpose | raise the cap, then `memex embed` |
+| Writes succeed but nothing is findable | budget ran out mid-index: the note is stored unembedded, on purpose | raise the cap, then `memrain embed` |
 
 ---
 
 ## Before you rely on this
 
-- Set `MEMEX_TENANT_FAIL_CLOSED=1`. Without it, an authenticated principal
+- Set `MEMRAIN_TENANT_FAIL_CLOSED=1`. Without it, an authenticated principal
   carrying **no** grant falls back to the redacted whole brain rather than to
   nothing — and every rule above keys off the grant.
 - Leave Dynamic Client Registration off. A self-registered client lands on the

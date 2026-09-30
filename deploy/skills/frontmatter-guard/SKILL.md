@@ -68,7 +68,7 @@ Without a guard, these accumulate silently until indexing chokes or search retur
 Run a read-only scan. Start from the doctor's health surface, then narrow:
 
 ```
-run_doctor                      # or from the shell: memex doctor --json
+run_doctor                      # or from the shell: memrain doctor --json
 sources_list                    # which sources are registered
 source_health                   # per-source ingest/index state
 ```
@@ -112,7 +112,7 @@ modified and what each fix does, then confirm.
 
 **Read-only source caveat:** pages indexed from the read-only note corpus
 (the `memory` source) cannot be repaired with `page_put` — fix the
-underlying note on disk, then reindex it (`memex reindex` or the `index`
+underlying note on disk, then reindex it (`memrain reindex` or the `index`
 tool) so the corrected frontmatter lands.
 
 ### Phase 4: Write-time prevention (optional)

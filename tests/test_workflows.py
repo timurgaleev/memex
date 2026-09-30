@@ -121,3 +121,18 @@ def test_gitleaks_push_ranges_are_never_superseded():
     assert _triggers(wf).get("schedule"), "supply-chain.yml needs a scheduled full-history run"
     runs = " ".join(s.get("run", "") for s in wf["jobs"]["gitleaks"]["steps"])
     assert 'RANGE="--all"' in runs
+
+
+@pytest.mark.parametrize("name", ("ci.yml", "bun-arm64.yml"))
+def test_bun_test_jobs_use_the_memrain_package(name):
+    jobs = [
+        job
+        for job in _load(name)["jobs"].values()
+        if "Bun tests" in str(job.get("name", ""))
+    ]
+    assert jobs, f"{name} has no Bun test job"
+    for job in jobs:
+        assert job["name"].startswith("Memrain Bun tests ("), job["name"]
+        assert "memex" not in job["name"].lower()
+        workdir = job.get("defaults", {}).get("run", {}).get("working-directory")
+        assert workdir == "deploy/memrain", f"{name}:{job['name']} runs in {workdir!r}"

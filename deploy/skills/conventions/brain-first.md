@@ -7,7 +7,7 @@ knowledge of when and how to use them. This file is that knowledge.
 
 ## Available Brain Tools
 
-Your tool inventory includes these (over MCP, or `memex call <tool>` from
+Your tool inventory includes these (over MCP, or `memrain call <tool>` from
 the shell):
 
 | Tool | Use for |
@@ -26,7 +26,7 @@ the shell):
 | `add_timeline_event` | Add a dated event |
 | `link` | Add a relationship edge |
 
-Tool names are the same over MCP and via `memex call`. Use whichever your
+Tool names are the same over MCP and via `memrain call`. Use whichever your
 environment provides.
 
 ## The Lookup Chain (MANDATORY ORDER)
@@ -51,7 +51,7 @@ hundreds of pages and thousands of chunks. The answer is almost always there.
   are supplementary.
 - **After any brain page write:** nothing to sync — pages are DB-canonical
   and searchable immediately. Only the read-only note corpus needs
-  `memex reindex` (operator-side) when its files change.
+  `memrain reindex` (operator-side) when its files change.
 - **Every brain page reference in output** should use a clickable link format
   appropriate to the deployment (slug link `[title](type/slug)` or URL).
 - **Never use session-memory search for entity lookups.** Session notes

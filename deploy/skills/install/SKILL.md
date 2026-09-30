@@ -17,4 +17,4 @@ The setup skill provides:
 - Server provisioning and connection checks
 - Non-interactive first-run configuration
 - Agent-instructions auto-injection (upgrade-safe)
-- First index and health verification (`memex doctor`)
+- First index and health verification (`memrain doctor`)

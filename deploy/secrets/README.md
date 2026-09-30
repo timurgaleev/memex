@@ -15,11 +15,11 @@ does NOT hold any secrets in tracked content.
 ```
 deploy/.secrets/                # dir mode 0711 (non-root descend-only)
 ├── cloudflared.env           TUNNEL_TOKEN=... + CLOUDFLARE_TUNNEL_TOKEN=...0400
-└── memex.env                 MEMEX_POSTGRES_URL=... + MEMEX_PUBLIC_BEARER + config  0400
+└── memrain.env               MEMRAIN_POSTGRES_URL=... + MEMRAIN_PUBLIC_BEARER + config  0400
 ```
 
-`cloudflared.env` and `memex.env` are consumed via `env_file`. memex
-reads `MEMEX_PUBLIC_BEARER` from `memex.env` to validate incoming public
+`cloudflared.env` and `memrain.env` are consumed via `env_file`. Memrain
+reads `MEMRAIN_PUBLIC_BEARER` from `memrain.env` to validate incoming public
 `/mcp` bearers. The directory is `0711` so a non-root container UID can
 descend into it without the host exposing the full file list.
 
@@ -28,13 +28,19 @@ Re-fetched on every `bootstrap.sh` run; existing files are overwritten.
 ## Secrets in AWS Secrets Manager
 
 The default prefix is `<var.secrets_prefix>` (configured in
-`terraform.tfvars`; default `memex`).
+`terraform.tfvars`; default `memrain`).
+
+In 1.0.x a stack created before the rename keeps its secret names:
+`fetch-secrets.sh` tries `<prefix>/memrain-<name>` first and falls back to
+`<prefix>/memex-<name>`, and a `.env` without `SECRETS_PREFIX` means the prefix
+`memex`. The optional `*_SECRET_NAME` keys in `.env` name a secret exactly
+(docs/CONFIGURATION.md, "Secret names").
 
 | Name | Format | Used by |
 |---|---|---|
 | `<prefix>/cloudflared-tunnel-token` | string | cloudflared |
-| `<prefix>/memex-postgres-url` | string (URL) | memex |
-| `<prefix>/memex-public-bearer` | string | memex — validates public `/mcp` bearers |
+| `<prefix>/memrain-postgres-url` | string (URL) | Memrain |
+| `<prefix>/memrain-public-bearer` | string | Memrain — validates public `/mcp` bearers |
 | `<prefix>/github-deploy-key` | OpenSSH private key | `bootstrap.sh` `git clone` (SSH deploy-key mode only) |
 
 When `use_ssh_deploy_key = true`, the deploy key lets the EC2 clone a

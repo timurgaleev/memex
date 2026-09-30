@@ -71,7 +71,7 @@ The "canonical truth" axis. The user wants the authoritative answer.
 If you can't classify confidently, OMIT the param and let the server's
 auto-detect handle it. The heuristic defaults to `off` for everything
 that doesn't clearly match a current-state pattern. Ask for the explain
-output (`memex search --explain`, or the explain option on `query`) to
+output (`memrain search --explain`, or the explain option on `query`) to
 see the resolved values and whether they came from the caller or the
 auto-heuristic — so you can see what fired and why.
 
@@ -97,7 +97,7 @@ through to the default `off` for both axes. Pass `salience` and
 ## Tuning the recency formula
 
 Per-prefix decay defaults live server-side. The operator can override
-per-process via env: `MEMEX_RECENCY_DECAY="prefix:halflife:coefficient,..."`.
+per-process via env: `MEMRAIN_RECENCY_DECAY="prefix:halflife:coefficient,..."`.
 The parser fails LOUD on bad syntax (no silent fallback). Tuning is
 operator-side config — don't mutate it from inside a skill.
 
@@ -116,6 +116,6 @@ no boost.
 ## See also
 
 - `conventions/search-modes.md` — the wider retrieval-knob bundle
-- `memex search --explain` — see resolved values + factor contributions
+- `memrain search --explain` — see resolved values + factor contributions
 - `get_recent_salience` — dedicated "what mattered lately" op; its
   `recency_bias: 'flat' | 'on'` opts into per-prefix decay

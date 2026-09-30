@@ -15,13 +15,13 @@ start an isolated session that races the server for resources.
 
 # Good: fire-and-forget submit with an idempotency key per cycle slot.
 # The queue dedupes long-running overlaps at the DB layer.
-ExecStart=/usr/local/bin/memex jobs submit inbox-sweep \
+ExecStart=/usr/local/bin/memrain jobs submit inbox-sweep \
   --params '{"slot":"$(date -u +%Y-%m-%dT%H:%M)"}' \
   --idempotency-key inbox-sweep:$(date -u +%Y-%m-%dT%H:%M)
 ```
 
 From MCP the same submit is `jobs_submit` with the handler name, params,
-and idempotency key. `memex call jobs_submit '{...}'` works from any shell
+and idempotency key. `memrain call jobs_submit '{...}'` works from any shell
 step.
 
 Note the brain's own maintenance (embedding backfill, link derivation,
@@ -34,7 +34,7 @@ doesn't know about.
 
 - **Durability.** Server restart mid-task? The worker picks the job up on
   boot. No lost state.
-- **Observability.** `jobs_list` + `jobs_get <id>` (or `memex jobs` from
+- **Observability.** `jobs_list` + `jobs_get <id>` (or `memrain jobs` from
   the shell) show every run, its duration, its logs (`jobs_logs`), its
   progress (`get_job_progress`).
 - **Steering.** A misbehaving run is cancellable (`jobs_cancel`) and
@@ -60,7 +60,7 @@ task) is a different layer — see `conventions/subagent-routing.md`.
 ## Off mode
 
 Operators who prefer plain shell commands in their timer units (a direct
-`memex reindex`, a curl to a health endpoint) keep them. This convention
+`memrain reindex`, a curl to a health endpoint) keep them. This convention
 governs *agent work* on a schedule, not every timer on the host. No
 auto-rewrite of existing units.
 

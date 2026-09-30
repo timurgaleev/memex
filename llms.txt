@@ -1,4 +1,4 @@
-# memex — llms.txt
+# Memrain — llms.txt
 
 > Map of where things live, for AI agents that just cloned the repo.
 > Read CLAUDE.md first (it's loaded automatically), this file second.
@@ -6,10 +6,10 @@
 ## What this repo is
 
 Self-hostable personal knowledge brain, reached over MCP only:
-- **memex** — knowledge brain (Bun + Postgres + pgvector). Hybrid
+- **Memrain** — knowledge brain (Bun + Postgres + pgvector). Hybrid
   search + graph-signals ranking, entity + code call graph
   (callers/callees), push-context, advisor; every MCP tool is declared in
-  `deploy/memex/src/mcp/operations.ts`. Retrieval-first
+  `deploy/memrain/src/mcp/operations.ts`. Retrieval-first
   — Bedrock Titan v2 embeddings + Claude Haiku intent/expansion; answer synthesis
   is the MCP client's job. An opt-in, off-by-default LLM step distils notes
   into a separate `synth_*` store (source notes never touched). PGLite is a
@@ -24,15 +24,15 @@ Both run as Docker Compose services on a single `t4g.medium` EC2.
 
 ## How callers authenticate
 
-- **Personal access token** — `memex auth create <name> --source <src>`, sent as
+- **Personal access token** — `memrain auth create <name> --source <src>`, sent as
   `Authorization: Bearer <token>`. Bound to one source; `read,write` by default.
-- **OAuth 2.1 client** — `memex auth register-client …`. memex is its own
+- **OAuth 2.1 client** — `memrain auth register-client …`. Memrain is its own
   authorization server (`/authorize`, `/token`, RFC 8414/9728 discovery).
   Browser connectors (claude.ai, ChatGPT) and CLI sign-ins use the
   authorization-code flow; `--tenant-mode enrollment` lets one connector serve
   a team, each person bound to their source by a one-time code. Dynamic Client
   Registration is off by default.
-- **Static public bearer** — `<prefix>/memex-public-bearer`, permanent, no
+- **Static public bearer** — `<prefix>/memrain-public-bearer`, permanent, no
   tenant, public read subset only. Not for people; hand out PATs or clients.
 
 `whoami` shows what a credential carries. Per-client guides: `docs/clients/`.
@@ -46,23 +46,24 @@ Both run as Docker Compose services on a single `t4g.medium` EC2.
 | What changed when, with reasoning | `CHANGELOG.md` |
 | Explicitly deferred work + when to pick it up | `TODO.md` |
 | How to behave inside this repo (build / test / commit) | `AGENTS.md` |
-| memex subsystem deep-dive | `deploy/memex/docs/{ARCHITECTURE,API,OPERATIONS,README}.md` |
+| Memrain subsystem deep-dive | `deploy/memrain/docs/{ARCHITECTURE,API,OPERATIONS,README}.md` |
 | Onboarding (`make init` flow) | `README.md` |
 | Every env knob, with cost tier | `docs/CONFIGURATION.md` |
 | Connecting a client (Claude Code, Codex, claude.ai, ChatGPT) | `docs/clients/*.md` |
 | One connector for a team, enrollment codes | `docs/TEAM-SETUP.md` |
 | Install / ingress modes / upgrade | `docs/DEPLOYMENT.md` |
+| Upgrading an install from before the rename | `UPGRADING.md` |
 | Plain-language tour of the pipeline | `docs/HOW-IT-WORKS.md` |
 
 ## Source code map
 
 ```
 deploy/
-├── docker-compose.yml           orchestrator (memex + cloudflared + internal net)
-├── memex/                       knowledge brain
+├── docker-compose.yml           orchestrator (memrain + cloudflared + internal net)
+├── memrain/                       knowledge brain
 │   ├── Dockerfile               oven/bun:1.3.13-alpine
 │   ├── package.json             pinned deps incl. yaml + chokidar + AWS SDK Bedrock + postgres
-│   ├── memex.yml.example        declarative runtime config overlay
+│   ├── memrain.yml.example        declarative runtime config overlay
 │   ├── templates/               SOUL/USER/ACCESS_POLICY/HEARTBEAT.md.template (seeded by init)
 │   ├── src/
 │   │   ├── cli.ts               argparse + subcommand dispatch
@@ -90,7 +91,7 @@ scripts/
 │   ├── pii-patterns.txt         audit input
 │   └── pii-allowlist.txt        files exempt from audit
 ├── bootstrap.sh                 EC2 first-boot — runs from cloud-init user_data
-└── rotate-memex-public-bearer.sh   bearer rotation for the optional timer (not installed)
+└── rotate-memrain-public-bearer.sh   bearer rotation for the optional timer (not installed)
 
 terraform/
 ├── main.tf                      providers + partial backend
@@ -102,7 +103,7 @@ terraform/
 
 tests/
 ├── audit.test.sh, init.test.sh  bash unit tests
-└── test_*.py                    pytest suites (memex skeleton, dockerfiles, etc.)
+└── test_*.py                    pytest suites (memrain skeleton, dockerfiles, etc.)
 
 Makefile                         orchestration entry points
 ```
@@ -110,7 +111,7 @@ Makefile                         orchestration entry points
 ## Conventions you'll want to know
 
 - Every secret is namespaced by `var.secrets_prefix` (default
-  `memex`, override via `scripts/init.sh` for fresh installs).
+  `memrain`, override via `scripts/init.sh` for fresh installs).
 - The `.env` at repo root is the runtime contract — it's rendered by
   `scripts/init.sh` (local) or `scripts/bootstrap.sh` (on EC2).
 - `make audit` reads `scripts/lib/pii-patterns.txt` and fails on any

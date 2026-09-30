@@ -21,7 +21,7 @@ server-side work: `think`, the background cycle's generative phases, and
 
 Budget knobs (env, operator-side):
 
-- `MEMEX_THINK` budget knobs cap per-call and per-day spend on the
+- `MEMRAIN_THINK` budget knobs cap per-call and per-day spend on the
   synthesis tier. When the budget is exhausted, `think` degrades to
   retrieval-only output rather than silently switching providers.
 - Utility-tier calls are metered per cycle phase; the cycle's warn-state
@@ -30,8 +30,8 @@ Budget knobs (env, operator-side):
 Visibility:
 
 ```bash
-memex status                 # current config snapshot, incl. model tiers
-memex doctor                 # probes + health checks per subsystem
+memrain status               # current config snapshot, incl. model tiers
+memrain doctor               # probes + health checks per subsystem
 ```
 
 **Never hardcode a model ID in skill prose or scripts.** Name the tier

@@ -44,7 +44,7 @@ For delight, set `"kind": "delight"` and pick any severity.
 
 The server stamps the timestamp and context automatically, so you can call
 this anywhere — mid-skill, during normal use, or from a scripted test. From
-the shell: `memex call log_friction '{...}'`.
+the shell: `memrain call log_friction '{...}'`.
 
 Do NOT put PII, secret values, or full page contents in `query` / `reason`.
 One line of what happened, one line of what would be better.
@@ -67,7 +67,7 @@ Friction entries are stored in the brain and surfaced two ways:
 
 - The background cycle's friction-propose phase clusters recent entries and
   drafts remediation suggestions for the operator.
-- `run_doctor` / `memex doctor` surface friction-volume anomalies.
+- `run_doctor` / `memrain doctor` surface friction-volume anomalies.
 
 If you need to review raw entries during a session, ask the operator — the
 friction log is an operator-facing surface, not an agent read-back channel.

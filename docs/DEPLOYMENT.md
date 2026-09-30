@@ -4,7 +4,7 @@ A linear self-host guide: from an empty AWS account to a running MCP retrieval
 brain your Claude Code (or any MCP client) can query at
 `https://<subdomain>.<domain>/mcp`.
 
-The stack is one small EC2 instance running Docker Compose (the `memex`
+The stack is one small EC2 instance running Docker Compose (the `memrain`
 container + a `cloudflared` sidecar), an RDS Postgres index, an EFS data tree,
 and Secrets Manager for credentials. Public ingress is a **Cloudflare Tunnel**,
 not an ALB — the instance opens no inbound web ports.
@@ -48,13 +48,13 @@ Throughout, replace placeholders: `example.com` (your domain), `<subdomain>`
   > **Running behind a different reverse proxy (Caddy, nginx, an ALB)?**
   > Public-request detection keys on the `Cf-Connecting-Ip` header the
   > Cloudflare edge injects. Behind any other ingress you MUST either
-  > inject that header at the proxy or set `MEMEX_ASSUME_PUBLIC=1` in the
+  > inject that header at the proxy or set `MEMRAIN_ASSUME_PUBLIC=1` in the
   > container env — otherwise every request classifies as internal and
   > `/mcp` is served **without auth**. After any ingress change, verify:
   > an unauthenticated `POST /mcp` must return 401.
   >
   > If that proxy forwards the client IP only as `X-Forwarded-For` /
-  > `X-Real-IP`, also set `MEMEX_HTTP_TRUST_PROXY=1`. Without it those headers
+  > `X-Real-IP`, also set `MEMRAIN_HTTP_TRUST_PROXY=1`. Without it those headers
   > are ignored (they are caller-spoofable), so every public caller shares one
   > rate-limit bucket and the brute-force throttle on bearer verification is
   > skipped entirely. Set it **only** when the proxy overwrites the header it
@@ -67,22 +67,22 @@ Throughout, replace placeholders: `example.com` (your domain), `<subdomain>`
 ## 2. Clone and initialize
 
 ```bash
-git clone https://github.com/<your-github-username>/memex.git
-cd memex
+git clone https://github.com/<your-github-username>/memrain.git
+cd memrain
 scripts/init.sh
 ```
 
 `scripts/init.sh` is interactive. It prompts for your AWS account id, region,
 profile, **domain**, subdomain (default `brain`), GitHub owner/repo, secrets
-prefix (default `memex`), the tfstate bucket + region, optional
+prefix (default `memrain`), the tfstate bucket + region, optional
 alarm email / SSH CIDR, and a **feature tier** (default **Max quality** — the
 full paid Sonnet brain; the installer opts you into the recommended tier). It
 then writes three **gitignored** files atomically:
 
-- `.env` — runtime config for compose + scripts (`MEMEX_HOST` becomes
-  `<subdomain>.<domain>`, `MEMEX_PUBLIC_WRITE=0`, plus the chosen tier's
+- `.env` — runtime config for compose + scripts (`PUBLIC_HOST` becomes
+  `<subdomain>.<domain>`, `MEMRAIN_PUBLIC_WRITE=0`, plus the chosen tier's
   feature flags). The tier default is **Max**; pick `balanced` or `free` at the
-  prompt, or set `MEMEX_INIT_TIER=free|balanced|max` for the non-interactive
+  prompt, or set `MEMRAIN_INIT_TIER=free|balanced|max` for the non-interactive
   path. These flags only take effect once you recompose — a bare `git clone`
   (whose runtime code defaults stay OFF) never bills. See
   [CONFIGURATION.md](CONFIGURATION.md#quality--cost-tiers-pick-one).
@@ -149,10 +149,10 @@ that is never committed:
 
 Terraform creates most secrets fully populated:
 
-- `<prefix>/memex-postgres-url` — **auto-filled** from the RDS instance
+- `<prefix>/memrain-postgres-url` — **auto-filled** from the RDS instance
   (username, generated password, endpoint, port, db). No action needed.
-- `<prefix>/memex-public-bearer` — **auto-generated** 48-char token.
-- `<prefix>/memex-internal-token` — **auto-generated** 48-char token.
+- `<prefix>/memrain-public-bearer` — **auto-generated** 48-char token.
+- `<prefix>/memrain-internal-token` — **auto-generated** 48-char token.
 
 Exactly one secret is created as an **empty placeholder** you must fill by hand:
 
@@ -164,7 +164,7 @@ Read the auto-generated bearer (you'll need it for the MCP client in step 8):
 
 ```bash
 aws secretsmanager get-secret-value \
-  --secret-id <prefix>/memex-public-bearer \
+  --secret-id <prefix>/memrain-public-bearer \
   --profile <your-profile> --region <your-region> \
   --query SecretString --output text
 ```
@@ -176,8 +176,8 @@ aws secretsmanager get-secret-value \
 1. In the Cloudflare **Zero Trust** dashboard → **Networks → Tunnels**, create a
    tunnel (connector type: *Cloudflared*).
 2. Add a **public hostname** route: `<subdomain>.example.com` →
-   `http://memex:18790` (the container name + internal port; cloudflared shares
-   the compose network with memex).
+   `http://memrain:18790` (the container name + internal port; cloudflared shares
+   the compose network with Memrain).
 3. Copy the tunnel **token** and store it in the placeholder secret:
 
    ```bash
@@ -205,9 +205,9 @@ step entirely. Then:
   (`/etc/<project>/compose.caddy.yml`): automatic Let's Encrypt issuance
   and renewal, certificate state on EFS (survives instance replacement),
   the `cloudflared` service parked behind an unused compose profile;
-- the container gets `MEMEX_ASSUME_PUBLIC=1`, so bearer auth is enforced
+- the container gets `MEMRAIN_ASSUME_PUBLIC=1`, so bearer auth is enforced
   for **every** request — do not remove it; without it a request that
-  reaches memex without the `Cf-Connecting-Ip` header would be treated as
+  reaches Memrain without the `Cf-Connecting-Ip` header would be treated as
   internal and served without auth;
 - bootstrap ends with an auth smoke test: an unauthenticated `POST /mcp`
   must return 401. Repeat that check after any ingress change;
@@ -228,9 +228,9 @@ rejects the destroy; run `aws secretsmanager restore-secret --secret-id
 
 ### Admin surface and OAuth consent
 
-Create `<prefix>/memex-admin-bootstrap` with a 32+ character value from
+Create `<prefix>/memrain-admin-bootstrap` with a 32+ character value from
 `[A-Za-z0-9_-]` (`openssl rand -base64 32 | tr '+/' '-_'`). Bootstrap reads it
-and writes both `MEMEX_ADMIN_BOOTSTRAP` and `MEMEX_OAUTH_REQUIRE_LOGIN=1` into
+and writes both `MEMRAIN_ADMIN_BOOTSTRAP` and `MEMRAIN_OAUTH_REQUIRE_LOGIN=1` into
 `.env`, which gates `/authorize` on an operator being signed in. Leave the
 secret empty and the server mints a fresh token every restart and
 auto-approves every consent request instead — on a caddy install that consent
@@ -254,11 +254,11 @@ bearer rotation. Bootstrap does **not** install them; do it deliberately:
 ```bash
 sudo install -m 644 deploy/systemd/*.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now memex-eval-probe.timer
+sudo systemctl enable --now memrain-eval-probe.timer
 ```
 
-Both read `AWS_REGION` from `/opt/memex/.env`. Enable
-`memex-rotate-bearer.timer` only once you know what consumes the public
+Both read `AWS_REGION` from `/opt/memrain/.env`. Enable
+`memrain-rotate-bearer.timer` only once you know what consumes the public
 bearer — rotation breaks any client holding the old value.
 
 ---
@@ -270,14 +270,14 @@ the first boot it:
 
 - installs Docker + the pinned Docker Compose v2 plugin (sha256-verified),
 - mounts EFS and seeds the canonical data dirs,
-- HTTPS-clones the repo into `/opt/memex` (SSH only when
+- HTTPS-clones the repo into `/opt/memrain` (SSH only when
   `use_ssh_deploy_key = true`),
-- renders `/opt/memex/.env` from the terraform env contract,
+- renders `/opt/memrain/.env` from the terraform env contract,
 - runs `deploy/secrets/fetch-secrets.sh` to pull secrets into
   `deploy/.secrets/`,
 - `docker compose … up -d --build`.
 
-memex runs its DB migrations at container start — no manual migrate step. If you
+Memrain runs its DB migrations at container start — no manual migrate step. If you
 filled the tunnel token in step 5 before boot, the stack comes up healthy in one
 pass; if you filled it after, `docker compose restart cloudflared` on the host
 (via SSM) picks it up.
@@ -294,26 +294,26 @@ aws ssm start-session --target <instance-id> \
 ## 7. Index your first content
 
 The container mounts your content read-only at `/memory`
-(`MEMEX_VAULT_PATHS`) and the code checkout at `/repo-source`
-(`MEMEX_CODE_PATHS`). Content written through MCP (`page_put`, `add_fact`, …)
+(`MEMRAIN_VAULT_PATHS`) and the code checkout at `/repo-source`
+(`MEMRAIN_CODE_PATHS`). Content written through MCP (`page_put`, `add_fact`, …)
 is indexed immediately. Markdown *files* dropped into the EFS
 `workspace/memory` tree are indexed with one directory-level command (there is
-no `memex` alias inside the container — go through the CLI entry point):
+no `memrain` alias inside the container — go through the CLI entry point):
 
 ```bash
-docker exec deploy-memex-1 bun run src/cli.ts reindex --source vault --vault /memory
+docker exec deploy-memrain-1 bun run src/cli.ts reindex --source vault --vault /memory
 ```
 
 It is incremental (unchanged files are skipped); add `--all` to force a full
 pass and `--reconcile-deletes` to drop pages whose files were removed. Code
-roots (`MEMEX_CODE_PATHS`) are swept at serve boot; `reindex --source code`
+roots (`MEMRAIN_CODE_PATHS`) are swept at serve boot; `reindex --source code`
 re-sweeps them after a `git pull`.
 
 To rebuild the code graph (definitions, references, callers, callees) in
 place, force a full code pass:
 
 ```bash
-docker exec deploy-memex-1 bun run src/cli.ts reindex --source code --all
+docker exec deploy-memrain-1 bun run src/cli.ts reindex --source code --all
 ```
 
 It is graph-only (tree-sitter, no Bedrock calls, no spend). Run it once after
@@ -335,7 +335,7 @@ Add the server to `~/.claude.json` (global) or a project `.claude.json`:
 ```jsonc
 {
   "mcpServers": {
-    "memex": {
+    "memrain": {
       "type": "http",
       "url": "https://<subdomain>.example.com/mcp",
       "headers": {
@@ -349,21 +349,21 @@ Add the server to `~/.claude.json` (global) or a project `.claude.json`:
 Or via the CLI:
 
 ```bash
-claude mcp add --transport http memex https://<subdomain>.example.com/mcp \
+claude mcp add --transport http memrain https://<subdomain>.example.com/mcp \
   --header "Authorization: Bearer <token-from-step-4>"
 ```
 
-Restart Claude Code. The read tools appear under `memex.*` (`search`,
+Restart Claude Code. The read tools appear under `memrain.*` (`search`,
 `backlinks`, `page_{get,list,versions}`, `graph_{neighbors,query}`,
 `traverse_graph`, `entity_{facts,timeline,recall}`, `source_health`,
 `whoami`). Write tools are filtered from the public surface unless
-`MEMEX_PUBLIC_WRITE=1`. The static public bearer is also denied `query`,
+`MEMRAIN_PUBLIC_WRITE=1`. The static public bearer is also denied `query`,
 `think`, every `code_*` tool, `volunteer_context`, the `find_*` analytics, the
 takes/calibration tools, `recall`, `get_chunks`, `get_tags`,
 `relational_recall`, `stats`, the `jobs_*` tools and more
 (`FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` in `http/public_guard.ts`); use a personal
-access token (`memex auth create <name>`) or an OAuth client for those. The
-bearer is static unless you install the optional `memex-rotate-bearer` timer
+access token (`memrain auth create <name>`) or an OAuth client for those. The
+bearer is static unless you install the optional `memrain-rotate-bearer` timer
 (section 5).
 
 ---
@@ -385,7 +385,7 @@ curl -s https://<subdomain>.example.com/mcp \
 On the host you can also check container health directly:
 
 ```bash
-docker inspect deploy-memex-1 --format '{{.State.Health.Status}}'   # healthy
+docker inspect deploy-memrain-1 --format '{{.State.Health.Status}}' # healthy
 ```
 
 ---
@@ -396,10 +396,10 @@ Deploy is via SSM to the live host, not platform CI. In an SSM session on the
 instance:
 
 ```bash
-cd /opt/memex
+cd /opt/memrain
 git pull --ff-only
 bash deploy/deploy.sh      # stamps the image with git describe, waits for healthy
-docker inspect deploy-memex-1 --format '{{.State.Health.Status}}'
+docker inspect deploy-memrain-1 --format '{{.State.Health.Status}}'
 curl -s http://127.0.0.1:18790/health    # {"ok":true,...,"version":"<new stamp>"}
 ```
 
@@ -411,10 +411,10 @@ that group or others can read, a symlink, or a secret passed on the command
 line):
 
 ```bash
-umask 077; printf '{"token":"%s"}' "$PAT" > ~/.config/memex/doctor-token.json
-cd deploy/memex
+umask 077; printf '{"token":"%s"}' "$PAT" > ~/.config/memrain/doctor-token.json
+cd deploy/memrain
 bun run src/cli.ts auth doctor https://brain.example.com \
-  --token-file ~/.config/memex/doctor-token.json \
+  --token-file ~/.config/memrain/doctor-token.json \
   --expect-operator --expect-version "$(git describe --tags)"
 ```
 
@@ -431,7 +431,7 @@ where it pointed, so neither the client secret nor the bearer is re-sent. It exi
 on a usage error; `--json` prints the full report.
 
 For
-a service other than memex: `docker compose --env-file .env up -d --build
+a service other than `memrain`: `docker compose --env-file .env up -d --build
 <service>` (no `-f`: it would override the `COMPOSE_FILE` line in `.env` and
 drop the Caddy overlay).
 

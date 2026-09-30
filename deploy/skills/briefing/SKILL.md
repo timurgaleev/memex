@@ -57,7 +57,7 @@ Compile a daily briefing from brain context.
       entity from the salience list; include `kind`, `notability`, and `confidence`.
    4. **Consolidation footer** — the brain's background cycle handles fact
       consolidation on its own schedule; if `run_doctor` reports the cycle in a
-      warn state, note it so the operator can run `memex cycle` before reading
+      warn state, note it so the operator can run `memrain cycle` before reading
       further.
 
    `chronicle_last_seen` advances the cursor so the next briefing picks up

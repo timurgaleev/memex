@@ -1,8 +1,8 @@
-# memex-stack — Privacy Policy
+# Memrain — Privacy Policy
 
 **Effective:** see git history of this file
 **Operator:** `<MAINTAINER>` — `<your-email>`
-**Service:** memex-stack — a personal AI assistant deployed for one
+**Service:** Memrain — a personal AI assistant deployed for one
 user only.
 
 This stack is a single-user system. The operator (above) is the only
@@ -11,13 +11,13 @@ and no marketing list.
 
 ## What data the app touches
 
-memex indexes only data the operator points it at inside their own
+Memrain indexes only data the operator points it at inside their own
 infrastructure:
 
 | Source | What we read |
 |---|---|
-| Markdown notes | Notes the operator indexes from under the configured `MEMEX_VAULT_PATHS`. |
-| Code corpus | Source files under the configured `MEMEX_CODE_PATHS` (graph-only via tree-sitter). |
+| Markdown notes | Notes the operator indexes from under the configured `MEMRAIN_VAULT_PATHS`. |
+| Code corpus | Source files under the configured `MEMRAIN_CODE_PATHS` (graph-only via tree-sitter). |
 
 There is **no third-party data integration** — no Google, no email, no
 calendar, no smart-home, no OAuth to any external provider. The stack
@@ -33,7 +33,7 @@ configured region:
   rest.
 - **AWS Bedrock** is used for embeddings (Amazon Titan Text Embeddings
   v2) and lightweight retrieval helpers — intent classification and
-  query expansion (Amazon Nova Lite). memex does **not** synthesize
+  query expansion (Amazon Nova Lite). Memrain does **not** synthesize
   answers; that is the MCP client's job. Bedrock requests stay inside
   AWS; Amazon's standard Bedrock data-handling terms apply (no model
   training on customer prompts).
@@ -49,7 +49,7 @@ Only the operator. Access is gated behind:
 - AWS IAM policies scoped to the operator's account.
 - A bearer token for the public read API at
   `<subdomain>.<your-domain>`, optionally rotated daily by the
-  `memex-rotate-bearer` systemd timer.
+  `memrain-rotate-bearer` systemd timer.
 - A Cloudflare Tunnel that fronts the EC2 instance — the underlying
   host has no public IP.
 

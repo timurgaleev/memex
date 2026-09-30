@@ -1,15 +1,15 @@
-# memex — API Reference
+# Memrain — API Reference
 
-The memex daemon binds `0.0.0.0:18790` inside its container but is
+The Memrain daemon binds `0.0.0.0:18790` inside its container but is
 **reachable only on the Docker `internal` network** for in-stack
-callers (via Docker DNS as `http://memex:18790`) and through Cloudflare
+callers (via Docker DNS as `http://memrain:18790`) and through Cloudflare
 Tunnel for the public MCP surface at `https://brain.<your-domain>/mcp`.
 
 Routes:
 
 - `POST /mcp` — JSON-RPC 2.0 entry point; every tool is reached via
   `tools/call`. Accepts a personal access token, an OAuth access token or
-  the public bearer; in-stack callers send `MEMEX_INTERNAL_TOKEN`.
+  the public bearer; in-stack callers send `MEMRAIN_INTERNAL_TOKEN`.
 - `GET /health` — operational probe (no auth).
 - `GET /.well-known/…` — OAuth authorization-server and protected-resource
   metadata (no auth).
@@ -48,7 +48,7 @@ or batched (array).
   "jsonrpc": "2.0", "id": 1,
   "result": {
     "protocolVersion": "2025-03-26",
-    "serverInfo": { "name": "memex", "version": "0.1.0" },
+    "serverInfo": { "name": "memrain", "version": "0.1.0" },
     "capabilities": { "tools": {} }
   }
 }
@@ -134,7 +134,7 @@ Standard JSON-RPC + two server-defined:
 | -32601 | method not found |
 | -32603 | internal error |
 | -32000 | rate limit exceeded (per-IP token bucket) |
-| -32001 | unauthorized — a write tool was called on the internal path without `MEMEX_INTERNAL_TOKEN` |
+| -32001 | unauthorized — a write tool was called on the internal path without `MEMRAIN_INTERNAL_TOKEN` |
 
 Tool-call errors (a tool throwing) are returned as `result.isError =
 true`, NOT as JSON-RPC errors — that's per the MCP spec.
@@ -153,7 +153,7 @@ Or on the EC2 host, directly against the container on the internal
 network:
 
 ```bash
-docker exec deploy-memex-1 sh -c '
+docker exec deploy-memrain-1 sh -c '
   echo "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"stats\"}}" \
     | wget -qO- --post-file=/dev/stdin --header=Content-Type:application/json http://127.0.0.1:18790/mcp
 '
@@ -164,7 +164,7 @@ docker exec deploy-memex-1 sh -c '
 - **Internal traffic** (no `Cf-Connecting-Ip`) keys into a single
   "internal" rate-limit bucket; the trust boundary is the Docker network.
   Read tools are open. **Write tools require
-  `Authorization: Bearer <MEMEX_INTERNAL_TOKEN>`** — without it a write
+  `Authorization: Bearer <MEMRAIN_INTERNAL_TOKEN>`** — without it a write
   `tools/call` returns JSON-RPC `-32001` (closes the compromised-sibling
   kill-chain). When the token is unconfigured the gate falls through open
   (legacy single-node mode, with a startup warning).
@@ -174,5 +174,5 @@ docker exec deploy-memex-1 sh -c '
   callers must present `Authorization: Bearer <public-bearer>`; the
   mutating tools are filtered from discovery and blocked from dispatch
   via `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC` (in `mcp/dispatch.ts` /
-  `http/public_guard.ts`) unless `MEMEX_PUBLIC_WRITE=1`. Public read
-  tools additionally redact note bodies unless `MEMEX_PUBLIC_READ_BODIES=1`.
+  `http/public_guard.ts`) unless `MEMRAIN_PUBLIC_WRITE=1`. Public read
+  tools additionally redact note bodies unless `MEMRAIN_PUBLIC_READ_BODIES=1`.

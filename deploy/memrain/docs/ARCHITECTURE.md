@@ -1,6 +1,6 @@
-# memex — Architecture
+# Memrain — Architecture
 
-Deep dive into the memex subsystem. For project-level topology see
+Deep dive into the Memrain subsystem. For project-level topology see
 `ARCHITECTURE.md` at the repo root; this doc covers internal layout,
 the schema, the search pipeline, the cycle phases, and operational
 boundaries.
@@ -8,7 +8,7 @@ boundaries.
 ## High-level layout
 
 ```
-deploy/memex/src/
+deploy/memrain/src/
 ├── cli.ts               argparse + dispatch (17 subcommands)
 ├── commands/            one .ts per subcommand
 ├── core/
@@ -148,7 +148,7 @@ flowchart TD
   H --> B[applySourceBoost]
   B --> RS[× recency updated_at  × salience frontmatter]
   RS --> D[dedupByDocument]
-  D --> RR{MEMEX_RERANK?}
+  D --> RR{MEMRAIN_RERANK?}
   RR -->|yes| TP[Haiku 4.5 two-pass rerank]
   RR -->|no| TK[trim to k]
   TP --> TK
@@ -171,13 +171,13 @@ absent — `core/search/`):
 fail-open. Keyed on the live-model `document_generation_clock` (migration 025,
 bumped on every document write), so any ingest invalidates it. Stores chunk
 ids only (re-hydrated from live tables); a hit skips embed/intent/retrieval.
-Disable per-call with `noCache` or globally with `MEMEX_QUERY_CACHE=0`.
+Disable per-call with `noCache` or globally with `MEMRAIN_QUERY_CACHE=0`.
 
 **token_budget** (`token-budget.ts`): optional `search` param caps total
 returned context (~chars/4); the overflowing tail hit is truncated and
 flagged `truncated:true`.
 
-Two-pass rerank is opt-in via `MEMEX_RERANK=1` env (Haiku is paid;
+Two-pass rerank is opt-in via `MEMRAIN_RERANK=1` env (Haiku is paid;
 default off keeps cost on Bedrock credit-eligible models).
 
 ## Cycle pipeline
@@ -223,11 +223,14 @@ Public-bearer reads are body-redacted (`core/public_redaction.ts`); the
 internal token returns full content.
 
 Per-IP rate limit (token bucket, default 60 req/min). Configurable
-via `mcp.rate_limit_per_minute` in `memex.yml`.
+via `mcp.rate_limit_per_minute` in `memrain.yml`.
 
 ## Soul / identity files
 
-`init` seeds 4 templates into `~/.memex/`:
+`init` seeds 4 templates into `~/.memrain/`. An install from before the
+rename that still has only `~/.memex/config.json` keeps using `~/.memex/` in
+1.0.x (and `memex.yml` when there is no `memrain.yml`); `init` refuses to
+create `~/.memrain/` beside a `~/.memex/` that holds data:
 - `SOUL.md` — agent identity (voice / values / hard constraints)
 - `USER.md` — user profile
 - `ACCESS_POLICY.md` — channel-by-channel capabilities
@@ -242,10 +245,10 @@ Mode `0600`. Reserved for future agent-side consumption.
 | Embeddings | `amazon.titan-embed-text-v2:0` | credit-eligible |
 | Query intent (internal) | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | paid (per-query; heuristic cache skips most) |
 | Query expansion (internal) | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | paid (per non-exact query) |
-| Two-pass rerank (opt-in) | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | paid (~$1-3/mo if `MEMEX_RERANK=1`) |
+| Two-pass rerank (opt-in) | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | paid (~$1-3/mo if `MEMRAIN_RERANK=1`) |
 
-Answer synthesis is not performed by memex — the MCP client (Claude
-Code, Cursor, …) composes answers from the cited chunks memex returns.
+Answer synthesis is not performed by Memrain — the MCP client (Claude
+Code, Cursor, …) composes answers from the cited chunks Memrain returns.
 
 Auth: EC2 IAM role + `AWS_PROFILE=default` env + container-mounted
 `~/.aws/config` (`credential_source = Ec2InstanceMetadata`).
@@ -254,10 +257,10 @@ Auth: EC2 IAM role + `AWS_PROFILE=default` env + container-mounted
 
 Highest precedence → lowest:
 
-1. `MEMEX_*` env vars (containers / one-off CLI invocations)
-2. `~/.memex/memex.yml` (declarative knob panel — sweep delays,
+1. `MEMRAIN_*` env vars (containers / one-off CLI invocations)
+2. `~/.memrain/memrain.yml` (declarative knob panel — sweep delays,
    cycle intervals, MCP rate limits, vault paths)
-3. `~/.memex/config.json` (boot-essentials only — db type/path,
+3. `~/.memrain/config.json` (boot-essentials only — db type/path,
    embedding provider/model/region; written by `init`)
 4. defaults compiled into `core/config.ts`
 
@@ -266,7 +269,7 @@ the engine from the merged shape.
 
 ## Security boundary
 
-- memex binds `0.0.0.0:18790` inside its container but the port
+- Memrain binds `0.0.0.0:18790` inside its container but the port
   is `expose:` only — never `ports:` — so it's reachable only on the
   Docker `internal` network and through Cloudflare Tunnel for the
   `brain.<domain>/mcp` public surface.
@@ -279,5 +282,5 @@ the engine from the merged shape.
   `mcp/dispatch.ts`; the read-tools allowed are: `search`,
   `backlinks`, `stats`, `page_{get,list,versions}`,
   `graph_{neighbors,query}`, `entity_{facts,timeline,recall}`,
-  `jobs_{list,get,logs}`. Writes require `MEMEX_INTERNAL_TOKEN`
+  `jobs_{list,get,logs}`. Writes require `MEMRAIN_INTERNAL_TOKEN`
   on the internal bridge.

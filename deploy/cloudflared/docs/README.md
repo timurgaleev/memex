@@ -1,7 +1,7 @@
 # cloudflared — public ingress sidecar
 
 Routes `https://brain.<domain>/mcp` from the Cloudflare edge to the
-internal `memex` container so MCP-compatible AI clients (Claude Code,
+internal `memrain` container so MCP-compatible AI clients (Claude Code,
 Cursor, Codex) can reach the brain over HTTPS without exposing any
 EC2 port. Single-purpose container running the upstream
 `cloudflare/cloudflared:2025.4.0` image — no custom build.
@@ -14,7 +14,8 @@ EC2 port. Single-purpose container running the upstream
   by `fetch-secrets.sh` from the
   `<secrets_prefix>/cloudflared-tunnel-token` AWS secret).
 - Routes traffic per the **dashboard-side ingress rule** (NOT this
-  repo): `brain.<domain>` → `http://memex:18790`.
+  repo): `brain.<domain>` → `http://memrain:18790`. The old origin
+  `http://memex:18790` still resolves through a network alias in 1.0.x.
 
 ## Why this directory exists
 

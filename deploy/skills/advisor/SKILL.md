@@ -41,14 +41,14 @@ This skill guarantees:
 
 ## How to run it
 
-Call the `advisor` tool (from the shell: `memex call advisor '{}'`).
+Call the `advisor` tool (from the shell: `memrain call advisor '{}'`).
 
 The payload is `{ version, generated_at, worst, findings: [...] }`, with
 `worst` as the severity gate: clean, warn, or critical. Each finding has:
 
 - `severity` — `critical` | `warn` | `info`
 - `title` — one-line why-it-matters
-- `fix` — the exact action to fix it (a `memex` shell command or an MCP
+- `fix` — the exact action to fix it (a `memrain` shell command or an MCP
   tool call, stated explicitly)
 
 ## What to do with the findings
@@ -57,7 +57,7 @@ The payload is `{ version, generated_at, worst, findings: [...] }`, with
 2. Summarize the top 1-3 to the user in their own channel/voice. Lead with any
    `critical` item (e.g. pending migrations).
 3. For each, show the suggested `fix` and **ask** whether to run it.
-4. If they say yes, run exactly the stated fix yourself — a `memex` command
+4. If they say yes, run exactly the stated fix yourself — a `memrain` command
    on the host or the named MCP tool call — nothing more. Version-drift
    findings route to `skills/brain-upgrade` (the deploy loop), not to an
    ad-hoc command.
@@ -87,7 +87,7 @@ scannable:
 Brain checkup — 2 things worth your attention
 
 CRITICAL  Schema migrations are pending.
-          Fix: memex doctor, then apply migrations   (want me to run it?)
+          Fix: memrain doctor, then apply migrations   (want me to run it?)
 
 WARN      The server is behind the latest release.
           Fix: skills/brain-upgrade (pull + rebuild on the host)
@@ -112,4 +112,4 @@ WARN      The server is behind the latest release.
 - **Expecting the `advisor` tool to report workspace install state.** Over MCP
   the advisor returns brain-state signals only; whether this workspace has the
   brain's skills installed is checked via `list_brain_skillpack` (or
-  `memex skillpack` on the host).
+  `memrain skillpack` on the host).

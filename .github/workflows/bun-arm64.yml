@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   bun-tests-arm64:
-    name: Memex Bun tests (arm64)
+    name: Memrain Bun tests (arm64)
     runs-on: ubuntu-24.04-arm
     # Above MAX_SECONDS below, so the runner stops itself and reports instead
     # of the job being CANCELLED at the cap.

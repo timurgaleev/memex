@@ -33,7 +33,7 @@ writes_pages: []
 
 # schema-author — evolve the brain's type taxonomy
 
-memex uses OPEN page typing: a page's `type` lives in its frontmatter, filing
+Memrain uses OPEN page typing: a page's `type` lives in its frontmatter, filing
 prefixes are conventions (see `_brain-filing-rules.md`), and typed links are
 derived from page content. There is no mutable "pack" artifact — the taxonomy
 is the set of conventions the ontology tracks plus the frontmatter discipline
@@ -181,8 +181,8 @@ right, backfill. For a handful of pages, edit frontmatter directly with
 the host — a dry run by default, `--apply` to write:
 
 ```
-memex page-retype --to researcher --path-prefix people/researchers/ --json
-memex page-retype --to researcher --path-prefix people/researchers/ --apply
+memrain page-retype --to researcher --path-prefix people/researchers/ --json
+memrain page-retype --to researcher --path-prefix people/researchers/ --apply
 ```
 
 Backfill must be idempotent: a second run finds nothing to update. Never rewrite page bodies during a retype —
@@ -227,7 +227,7 @@ reload step. Other agents see the change as soon as the pages are indexed.
 - **Outputs:** ontology proposal entries + updated conventions page + (if backfill ran) `type` frontmatter set on matching pages + a decision report page.
 - **Side effects:** retyped pages bump their document generation, so the query cache invalidates itself; other agents pick the change up on next read.
 - **Idempotency:** every step is idempotent. Re-proposing an existing type surfaces via `ontology_conflicts` instead of duplicating; a second backfill finds nothing to update.
-- **Trust:** taxonomy changes are internal-surface work — run them via the internal MCP surface or `memex call`; the public ingress does not expose destructive or taxonomy-shaping operations.
+- **Trust:** taxonomy changes are internal-surface work — run them via the internal MCP surface or `memrain call`; the public ingress does not expose destructive or taxonomy-shaping operations.
 - **Atomicity:** each page write is a single versioned `page_put`; a failed batch leaves prior pages untouched and `page_versions`/`page_revert` can roll back any individual page.
 
 ## Anti-Patterns
@@ -283,4 +283,4 @@ parameter.
 - **`find_experts` misses the new type** → the pages carry the type but the
   filing prefix doesn't match the convention page. Reconcile them.
 - **Permission denied (public surface)** → taxonomy ops are internal-only.
-  Use the internal MCP surface or `memex call` from the host.
+  Use the internal MCP surface or `memrain call` from the host.

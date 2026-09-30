@@ -77,7 +77,7 @@ This mode guarantees:
 
 ```bash
 bun test tests/brain_resident_skillpack.test.ts   # pack enumeration
-memex skillpack lint                              # tools + commands exist
+memrain skillpack lint                            # tools + commands exist
 ```
 
 The CI-gated check is the package.json `test` script.
@@ -114,7 +114,7 @@ Issues:
 | Tier | What it runs | Wall time | Gates |
 |------|--------------|-----------|-------|
 | **Unit** | `bun test` (deterministic, zero external calls) | <2s | Every commit |
-| **Evals** | LLM-judge or quality evals (`memex eval`) | ~60s | Daily |
+| **Evals** | LLM-judge or quality evals (`memrain eval`) | ~60s | Daily |
 | **Integration** | E2E tests against real Postgres | ~5m | Pre-ship + nightly |
 | **System health** | Disk / memory / CPU / service liveness | <10s | Daily |
 
@@ -143,7 +143,7 @@ timeouts, not code bugs).
 #### 3. Run system health checks
 
 - Disk / memory / CPU
-- Brain health: `memex doctor` from the shell, or the `run_doctor` MCP tool
+- Brain health: `memrain doctor` from the shell, or the `run_doctor` MCP tool
 - Database connection (if applicable)
 - Critical files exist (CLAUDE.md, AGENTS.md, etc.)
 

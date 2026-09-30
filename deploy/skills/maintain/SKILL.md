@@ -62,11 +62,11 @@ If the user asks "fix what's broken" or "get my brain healthy", prefer the
 server's own machinery over walking each dimension by hand:
 
 ```bash
-memex doctor            # categorized report: brain / ops / meta findings
-memex cycle             # run the full background maintenance cycle now
+memrain doctor          # categorized report: brain / ops / meta findings
+memrain cycle           # run the full background maintenance cycle now
 ```
 
-`run_doctor` (or `memex doctor` from the shell) reports every dimension with a
+`run_doctor` (or `memrain doctor` from the shell) reports every dimension with a
 cause-ranked, root-first list — fix the root causes first, the downstream
 findings usually clear themselves. The background cycle already remediates
 most mechanical dimensions on its own schedule: embedding backfill, link
@@ -112,7 +112,7 @@ If `stats` shows `link_count` at 0 or low relative to page count, the graph
 layer needs attention. The server derives typed links automatically on every
 `page_put` (wikilink and `[Name](people/slug)`-style references become typed
 link rows), and the background cycle reconciles the graph on each run. So:
-- Run `memex cycle` (or wait for the scheduled run) to backfill derivation
+- Run `memrain cycle` (or wait for the scheduled run) to backfill derivation
 - Verify with `graph_query` on a well-known entity slug (depth 2 probe)
 - Re-check `stats` for `link_count > 0`
 
@@ -169,9 +169,9 @@ the scheduler; the completion timestamp is written ONLY on successful runs
 
 **Invocation patterns:**
 ```bash
-memex cycle                     # full maintenance cycle now
-memex status                    # snapshot incl. last cycle result
-memex call get_status_snapshot '{}'   # same, via MCP from the shell
+memrain cycle                   # full maintenance cycle now
+memrain status                  # snapshot incl. last cycle result
+memrain call get_status_snapshot '{}' # same, via MCP from the shell
 ```
 
 There is no git step: the brain is DB-canonical. Pages written by the cycle
@@ -179,7 +179,7 @@ are live immediately; no commit or push exists to forget.
 
 ### Scheduler check
 Verify the cycle is actually running on schedule:
-- `get_status_snapshot` (or `memex status`) shows the last cycle completion
+- `get_status_snapshot` (or `memrain status`) shows the last cycle completion
   and any warn-state phases
 - On the host, the cycle runs under the server's own scheduler; systemd timers
   cover host-side jobs. If the last run is stale, check the server logs and
@@ -239,9 +239,9 @@ after content edits that add new references or dated entries.
 ### Embedding freshness
 Chunks without embeddings, or chunks embedded with an old model.
 - `stats` shows embedded vs total chunk counts
-- Backfill from the shell: `memex embed`
+- Backfill from the shell: `memrain embed`
 - For large refreshes (>1000 chunks), run detached:
-  `nohup memex embed > /tmp/memex-embed.log 2>&1 &` then `tail -1` the log
+  `nohup memrain embed > /tmp/memrain-embed.log 2>&1 &` then `tail -1` the log
 
 ### Security
 Run `run_doctor` and review the ops findings: ingress configuration, bearer
@@ -276,8 +276,8 @@ queries across difficulty tiers:
 - **Tier 3 (semantic):** queries with no exact keyword match -- needs embeddings
 - **Tier 4 (cross-domain):** relational/connection queries -- only semantic handles
 
-Compare `memex search` results across modes (keyword vs hybrid), and run
-`memex eval` for the scored retrieval-quality battery. Quality matters more
+Compare `memrain search` results across modes (keyword vs hybrid), and run
+`memrain eval` for the scored retrieval-quality battery. Quality matters more
 than speed (2.5s right > 200ms wrong).
 
 When to run benchmarks:
@@ -293,23 +293,23 @@ your operational heartbeat.
 
 ### On every heartbeat (hourly or per-session)
 
-Call `run_doctor` (or `memex doctor` from the shell) and check for
+Call `run_doctor` (or `memrain doctor` from the shell) and check for
 degradation. Report any failing checks to the user. Key signals: connection
 health, schema version, ingress/auth status, embedding staleness.
 
 ### Weekly maintenance
 
-Run `memex embed` to refresh embeddings for pages that have changed since
+Run `memrain embed` to refresh embeddings for pages that have changed since
 their last embedding. For large brains (>5000 pages), run this detached:
 ```bash
-nohup memex embed > /tmp/memex-embed.log 2>&1 &
+nohup memrain embed > /tmp/memrain-embed.log 2>&1 &
 ```
 
 ### Daily verification
 
 Verify the note source is fresh: check `source_health` and confirm the
 'memory' source was indexed within the last 24 hours. If indexing has
-stopped, the brain is drifting from the note corpus — run `memex reindex`
+stopped, the brain is drifting from the note corpus — run `memrain reindex`
 and investigate why the scheduled index lapsed.
 
 ### Stale compiled truth detection

@@ -1,8 +1,8 @@
 <div align="center">
 
-# memex
+# Memrain
 
-memex is a self-hosted memory server for your AI agents. It indexes your markdown
+Memrain is a self-hosted memory server for your AI agents. It indexes your markdown
 notes and your code (TypeScript, Python, Go, Bash, SQL), and it answers any MCP
 client with cited evidence from hybrid vector + keyword + entity-graph search.
 
@@ -21,14 +21,14 @@ retrieves goes to that agent's model.
 ## See it work
 
 <div align="center">
-  <img src="docs/assets/demo.svg" alt="An agent asks what was decided about an approach, memex search returns cited chunks from the operator's own notes, and the agent answers from them." width="720">
+  <img src="docs/assets/demo.svg" alt="An agent asks what was decided about an approach, Memrain search returns cited chunks from the operator's own notes, and the agent answers from them." width="720">
 </div>
 
-Connect once, then ask in plain words. memex returns the evidence, cited to the
+Connect once, then ask in plain words. Memrain returns the evidence, cited to the
 exact page. Your agent writes the answer.
 
 ```bash
-claude mcp add --transport http memex https://<subdomain>.<domain>/mcp \
+claude mcp add --transport http memrain https://<subdomain>.<domain>/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
@@ -39,7 +39,7 @@ On the host, the CLI runs the same retrieval the MCP `search` tool does, and
 `--explain` stamps per-signal ranking attribution on every hit:
 
 ```bash
-docker exec deploy-memex-1 bun run src/cli.ts search "<query>" --k 5 --explain
+docker exec deploy-memrain-1 bun run src/cli.ts search "<query>" --k 5 --explain
 ```
 
 </details>
@@ -47,7 +47,7 @@ docker exec deploy-memex-1 bun run src/cli.ts search "<query>" --k 5 --explain
 ## What you get
 
 You write notes, decisions and code, and six months later neither you nor your
-agent can find them. memex reads all of it once, keeps it searchable, and hands
+agent can find them. Memrain reads all of it once, keeps it searchable, and hands
 that search to every MCP client you use, with the source attached.
 
 <img src="docs/assets/feature-tiles.jpg" alt="Three tiles: a note under a magnifying lens with one cited line highlighted, a code call graph fanning out from one function, and a shield with a key guarding three separate per-person compartments." width="100%">
@@ -58,29 +58,29 @@ that search to every MCP client you use, with the source attached.
 | **Code intelligence** | `code_callers`, `code_callees`, `code_def`, `code_refs`, `code_blast` (transitive callers, depth 5 by default, max 8) and `code_flow`, over TS/TSX, Python and Go. |
 | **Push context** | `volunteer_context` surfaces relevant pages and `volunteer_chronicle` the recent timeline for the entities in play, before you ask. Both are deterministic, with no LLM call. |
 | **Facts, timelines, history** | `add_fact` / `recall` / `find_trajectory`, the `chronicle_*` tools, and `page_versions` / `page_revert` for every page. |
-| **Chats and agent sessions** | `memex transcripts ingest` imports ChatGPT and Claude.ai exports, Codex CLI rollouts and Claude Code session logs, keeping what was said and redacting credentials. |
+| **Chats and agent sessions** | `memrain transcripts ingest` imports ChatGPT and Claude.ai exports, Codex CLI rollouts and Claude Code session logs, keeping what was said and redacting credentials. |
 | **Safe writes** | `request_id` makes a retried write replay instead of landing twice; `expected_version` lets exactly one of two racing writers commit. |
 | **Team-ready** | One connector for a team, a separate source per person through single-use enrollment codes, and daily USD caps per OAuth client, per PAT and per person. One person can be revoked or re-enrolled without touching the others. |
 | **Secrets redacted on write** | Pasted AWS keys, API tokens and PEM keys become `[REDACTED:<kind>:<fingerprint>]` before they are stored or embedded. |
 | **Your infra** | One Graviton `t4g.medium` instance and encrypted RDS Postgres 16, all in Terraform. Zero telemetry. |
 
-Every MCP tool is declared once in [deploy/memex/src/mcp/operations.ts](./deploy/memex/src/mcp/operations.ts); `tools/list` returns them with their schemas and `annotations` (`readOnlyHint`, and `destructiveHint` / `idempotentHint` on the writes), so a client can ask before it writes.
+Every MCP tool is declared once in [deploy/memrain/src/mcp/operations.ts](./deploy/memrain/src/mcp/operations.ts); `tools/list` returns them with their schemas and `annotations` (`readOnlyHint`, and `destructiveHint` / `idempotentHint` on the writes), so a client can ask before it writes.
 
-**When memex is not the right fit**
+**When Memrain is not the right fit**
 
 - You do not want to run an AWS account.
 - You want a hosted service someone else operates.
-- You want a chat UI. memex retrieves; composing the answer is the MCP client's job.
+- You want a chat UI. Memrain retrieves; composing the answer is the MCP client's job.
 
 ## How it works
 
-memex indexes your content ahead of time and answers searches on demand. It
+Memrain indexes your content ahead of time and answers searches on demand. It
 returns ranked, cited chunks, never a generated answer, so the agent stays
 grounded in what you actually wrote.
 
 <img src="docs/assets/how-it-works.jpg" alt="One query splits into three lanes (vector similarity, keyword matching and an entity graph) that merge into a single ranked stack of results, with the best match highlighted." width="100%">
 
-<p align="center"><img src="docs/assets/architecture.svg" alt="memex turns your notes and code into a searchable brain that your AI agent reaches over MCP" width="760"></p>
+<p align="center"><img src="docs/assets/architecture.svg" alt="Memrain turns your notes and code into a searchable brain that your AI agent reaches over MCP" width="760"></p>
 
 1. **Notes and code** come in from the markdown vault, indexed code roots, `page_put`, or `POST /ingest`.
 2. **Chunkers** split them. Code is parsed with tree-sitter WASM grammars.
@@ -90,11 +90,11 @@ grounded in what you actually wrote.
 6. **Cited results** go back to the agent over `/mcp`.
 
 A maintenance cycle runs every 6 hours (the shipped compose file sets
-`MEMEX_DREAM_INTERVAL_S=21600`) to re-embed stale documents and keep the corpus tidy.
+`MEMRAIN_DREAM_INTERVAL_S=21600`) to re-embed stale documents and keep the corpus tidy.
 
 Every paid LLM feature (`think`, rerank, LLM intent and query expansion) is off
 in the runtime code. `scripts/init.sh` opts a new install into a quality tier:
-`max` by default, or `MEMEX_INIT_TIER=free|balanced|max`. The cost model is in
+`max` by default, or `MEMRAIN_INIT_TIER=free|balanced|max`. The cost model is in
 [docs/HOW-IT-WORKS.md](./docs/HOW-IT-WORKS.md).
 
 <details>
@@ -105,13 +105,13 @@ sequenceDiagram
     autonumber
     actor You
     participant Agent as Your AI agent
-    participant memex as memex (MCP)
+    participant memrain as Memrain (MCP)
     participant DB as Postgres + pgvector
     You->>Agent: "What did I decide about X?"
-    Agent->>memex: tools/call search { q }
-    memex->>DB: vector + keyword + graph query
-    DB-->>memex: top chunks, ranked (RRF)
-    memex-->>Agent: cited chunks (evidence, not an answer)
+    Agent->>memrain: tools/call search { q }
+    memrain->>DB: vector + keyword + graph query
+    DB-->>memrain: top chunks, ranked (RRF)
+    memrain-->>Agent: cited chunks (evidence, not an answer)
     Agent-->>You: answer, grounded in your own notes
 ```
 
@@ -127,7 +127,7 @@ host.
 **1. Clone the repo**
 
 ```bash
-git clone https://github.com/<your-github-username>/memex.git && cd memex
+git clone https://github.com/<your-github-username>/memrain.git && cd memrain
 ```
 
 **2. Write your config** (`.env`, `terraform/terraform.tfvars`, `terraform/backend.hcl`)
@@ -162,7 +162,7 @@ Without it every Claude call fails.
 **7. Index your vault** (in an SSM session on the host)
 
 ```bash
-docker exec deploy-memex-1 bun run src/cli.ts reindex --source vault --vault /memory
+docker exec deploy-memrain-1 bun run src/cli.ts reindex --source vault --vault /memory
 ```
 
 **8. Check health** (expect `{"ok":true,"db":...,"version":...}`)
@@ -174,7 +174,7 @@ curl -s https://<subdomain>.<domain>/health
 **9. Connect your agent**
 
 ```bash
-claude mcp add --transport http memex https://<subdomain>.<domain>/mcp \
+claude mcp add --transport http memrain https://<subdomain>.<domain>/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
@@ -182,10 +182,10 @@ claude mcp add --transport http memex https://<subdomain>.<domain>/mcp \
 <summary>Try it locally without AWS infra</summary>
 
 ```bash
-cd deploy/memex && bun run src/cli.ts init --pglite
+cd deploy/memrain && bun run src/cli.ts init --pglite
 ```
 
-This creates `~/.memex` with an embedded PGLite database. Embeddings still call
+This creates `~/.memrain` with an embedded PGLite database. Embeddings still call
 Bedrock, so you need AWS credentials with Titan access.
 
 </details>
@@ -200,9 +200,9 @@ OAuth. What the caller can do depends on the credential:
 
 | Credential | How you get it | What it unlocks |
 |---|---|---|
-| Personal access token | `memex auth create <name> --source <src>` | One person or machine, writing to its own source, with an optional daily cap. |
-| OAuth 2.1 client | `memex auth register-client ...` | Browser connectors (claude.ai, ChatGPT) and CLI sign-ins through `/authorize`, machine clients through client credentials, and enrollment mode for one connector shared by a team. |
-| Static public bearer | Auto-generated in Secrets Manager as `<prefix>/memex-public-bearer` | No tenant. Read tools such as `search`, `page_get`, `backlinks` and graph/entity reads; no `code_*`, `think`, `query`, `get_chunks` or `volunteer_context`. A small set of writes only with `MEMEX_PUBLIC_WRITE=1`. |
+| Personal access token | `memrain auth create <name> --source <src>` | One person or machine, writing to its own source, with an optional daily cap. |
+| OAuth 2.1 client | `memrain auth register-client ...` | Browser connectors (claude.ai, ChatGPT) and CLI sign-ins through `/authorize`, machine clients through client credentials, and enrollment mode for one connector shared by a team. |
+| Static public bearer | Auto-generated in Secrets Manager as `<prefix>/memrain-public-bearer` | No tenant. Read tools such as `search`, `page_get`, `backlinks` and graph/entity reads; no `code_*`, `think`, `query`, `get_chunks` or `volunteer_context`. A small set of writes only with `MEMRAIN_PUBLIC_WRITE=1`. |
 
 Run the `whoami` tool to see the scopes, write source and read sources of the
 credential you are using. Step-by-step guides, each with a troubleshooting table:
@@ -220,9 +220,11 @@ credential you are using. Step-by-step guides, each with a troubleshooting table
 - **Ingress.** The default is a Cloudflare Tunnel with no inbound ports.
   `ingress_mode = "caddy"` serves Let's Encrypt TLS on 80/443 instead.
 - **Access.** Reach the host through SSM (`aws ssm start-session --target <instance-id>`). No SSH.
-- **Update.** `cd /opt/memex && git pull --ff-only && bash deploy/deploy.sh`. It
+- **Update.** `cd /opt/memrain && git pull --ff-only && bash deploy/deploy.sh`. It
   stamps the build, and `/health` must report the new stamp.
-- **Operate.** `memex doctor`, `memex spend --days 7` and the `/admin` panel.
+- **Upgrading from before the rename.** See [UPGRADING.md](./UPGRADING.md); a
+  plain pull and deploy is not enough.
+- **Operate.** `memrain doctor`, `memrain spend --days 7` and the `/admin` panel.
 - **Optional units.** `deploy/systemd` ships a nightly eval probe and a bearer
   rotation timer. Bootstrap installs neither, and the static public bearer is
   meant to stay fixed; hand people PATs or OAuth clients instead.
@@ -234,12 +236,12 @@ See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) and [docs/CONFIGURATION.md](./doc
 - Every route except `GET /health`, the OAuth metadata and flow endpoints and
   `/admin` (which has its own sign-in) needs a credential. `/mcp` is the agent contract.
 - A built-in OAuth 2.1 server. Dynamic client registration is off unless
-  `MEMEX_ENABLE_DCR=1`, and then the server boots only with
-  `MEMEX_OAUTH_REQUIRE_LOGIN=1` (or the explicit `MEMEX_ENABLE_DCR_INSECURE=1`).
+  `MEMRAIN_ENABLE_DCR=1`, and then the server boots only with
+  `MEMRAIN_OAUTH_REQUIRE_LOGIN=1` (or the explicit `MEMRAIN_ENABLE_DCR_INSECURE=1`).
 - Enrollment codes are single-use, and only their SHA-256 is stored.
 - Credentials pasted into pages, facts, timeline entries, indexed files or
   `/ingest` are redacted before storage by default
-  (`MEMEX_SECRET_SCAN_DISPOSITION=flag|reject` changes that).
+  (`MEMRAIN_SECRET_SCAN_DISPOSITION=flag|reject` changes that).
 - For a capped caller, a paid call reserves its worst-case cost against the
   daily cap under a lock before it is sent.
 - RDS is encrypted, deletion-protected and keeps a final snapshot. CloudTrail is
@@ -261,7 +263,7 @@ Details: [docs/TEAM-SETUP.md](./docs/TEAM-SETUP.md) and [SECURITY.md](./SECURITY
 
 ## Contributing
 
-memex is deliberately small, so open an issue before anything that adds
+Memrain is deliberately small, so open an issue before anything that adds
 infrastructure or changes the deploy story. Before sending a change, run the
 local gates:
 
@@ -270,7 +272,7 @@ make audit
 make scrub-audit
 make typecheck                          # src/ and tests/
 make test
-env -C deploy/memex bun run test:sharded
+env -C deploy/memrain bun run test:sharded
 ```
 
 Never run a bare full `bun test`: the embedded database runs out of memory

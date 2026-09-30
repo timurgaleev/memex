@@ -40,6 +40,16 @@ must follow when editing this codebase.
   Discuss the idea in plain text first, agree on the approach, and only
   then build.
 
+### Compatibility code
+Memrain was called memex before 1.0.0, and the code keeps reading the old
+names on purpose: the `MEMEX_*` environment fallback, `memex:` fence markers in
+pages, `memex_` token and client id prefixes, the `x-memex-*` ingest headers,
+the legacy SQL functions (`memex_fact_claim_key` and friends), the
+`.memex-lock` PGLite lock, the `memex` command and the `memex` compose network
+alias. Existing installs and stored data depend on them. Do not remove or
+rename them outside an announced release (see UPGRADING.md and the
+CONFIGURATION.md "Legacy names" section).
+
 ## Key principle
 
 **Ask before acting on anything irreversible.** The cost of one
@@ -55,19 +65,19 @@ lost disk data is high.
 ## Conventions
 
 ### AWS model selection
-- memex uses Bedrock for embeddings (Amazon Titan Text Embeddings v2)
+- Memrain uses Bedrock for embeddings (Amazon Titan Text Embeddings v2)
   and the Bedrock Claude Haiku calls behind intent classification / query
   expansion / friction-propose. Answer *synthesis* is the MCP client's
-  job (Claude Code etc.) — memex is a retrieval brain, not a chat agent.
+  job (Claude Code etc.) — Memrain is a retrieval brain, not a chat agent.
 - `var.bedrock_model_id` surfaces a configured default in
   `terraform output bedrock_model`.
 - Switching to a new model family requires widening the Bedrock invoke
   permissions in `terraform/iam.tf` (region- and model-scoped).
 
 ### Secret naming
-- Every secret is prefixed by `var.secrets_prefix` (default: `memex`,
+- Every secret is prefixed by `var.secrets_prefix` (default: `memrain`,
   override via `scripts/init.sh` for a new install).
-- The pattern is `<prefix>/<name>` — e.g. `memex/memex-public-bearer`.
+- The pattern is `<prefix>/<name>` — e.g. `memrain/memrain-public-bearer`.
 
 ### Audit gate
 - `make audit` reads `scripts/lib/pii-patterns.txt` and fails on any
@@ -115,8 +125,8 @@ for this repo:
    - `python3 -m pytest tests/ -q` — all green
    - `terraform -chdir=terraform fmt -check && terraform -chdir=terraform validate` — when `terraform/` changed
    - `docker compose --env-file .env -f deploy/docker-compose.yml config` — when compose changed (an explicit `-f` is right HERE: this validates the file in the checkout, not the host's resolved set)
-   - When memex source changed, run the **full Bun suite locally**
-     (`env -C deploy/memex bun run test:sharded`) — not just the touched
+   - When Memrain source changed, run the **full Bun suite locally**
+     (`env -C deploy/memrain bun run test:sharded`) — not just the touched
      file. The local suite is the authoritative gate (operator decision:
      local is faster and is what we trust; see below). It MUST go through
      `test:sharded`: a bare `bun test` over all 324 files exhausts the
@@ -131,15 +141,15 @@ for this repo:
    Still glance at `gh run list --limit 1` later and fix any red, but
    it never gates the ship.
 3. **Deploy** to the live EC2 via SSM:
-   - `git pull --ff-only` in `/opt/memex/`
+   - `git pull --ff-only` in `/opt/memrain/`
    - `bash deploy/deploy.sh` — stamps the image with `git describe`, builds,
      waits for healthy, and FAILS if the running container reports a different
      stamp than the one just built. Do not hand-run the bare `docker compose
-     up -d --build` for the memex service: it leaves `MEMEX_VERSION` unset, the
+     up -d --build` for the memrain service: it leaves `MEMRAIN_VERSION` unset, the
      image is stamped `dev`, and `/health` can no longer tell a fresh container
      from a stale one.
-   - For a service other than memex: `docker compose --env-file .env up -d
-     --build <service>` from `/opt/memex/`. Do NOT hand-pass `-f
+   - For a service other than `memrain`: `docker compose --env-file .env up -d
+     --build <service>` from `/opt/memrain/`. Do NOT hand-pass `-f
      deploy/docker-compose.yml`: an explicit `-f` overrides the `COMPOSE_FILE`
      line bootstrap writes into `.env`, and on a caddy install that drops the
      ingress overlay from the resolved set — `--remove-orphans` then deletes
@@ -151,9 +161,9 @@ for this repo:
 4. **Verify on the live host**:
    - Containers healthy (`docker inspect <name> --format '{{.State.Health.Status}}'`)
    - `/health` endpoints return `ok:true`
-   - For MCP changes: a `tools/call` against `deploy-memex-1` (or `brain.<domain>/mcp` with the bearer) returns real data
-   - From the operator machine: `memex auth doctor https://<host> --token-file <0600 file> --expect-version <stamp> --expect-operator`
-     (run as `bun run src/cli.ts auth doctor ...` in `deploy/memex`) exits 0 — /health stamp, OAuth discovery, MCP and whoami scope in one report
+   - For MCP changes: a `tools/call` against `deploy-memrain-1` (or `brain.<domain>/mcp` with the bearer) returns real data
+   - From the operator machine: `memrain auth doctor https://<host> --token-file <0600 file> --expect-version <stamp> --expect-operator`
+     (run as `bun run src/cli.ts auth doctor ...` in `deploy/memrain`) exits 0 — /health stamp, OAuth discovery, MCP and whoami scope in one report
    - For new timer units: `sudo systemctl start <unit>` succeeds, then `systemctl is-active` reports OK
    - For terraform / infrastructure changes: the **S3-backed terraform
      state is the single source of truth and the ONLY path to change
@@ -181,6 +191,10 @@ for this repo:
    - The tag MUST point at a commit whose CI is green and that is
      already live on the EC2 — never tag ahead of deploy. `package.json`
      versions are decoupled and not bumped here.
+   - Versions restart at `v1.0.0` with the rename to Memrain. The
+     `memex-v*` tags are read-only archives of the releases before it:
+     never move, delete or reuse them, and match release tags with
+     `--match 'v[0-9]*'`.
 
 Skipping deploy because "the change is just docs" is fine; skipping
 verify is not. If a change touches anything other than `*.md`,

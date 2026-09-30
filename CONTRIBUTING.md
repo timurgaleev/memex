@@ -15,8 +15,8 @@ Prerequisites:
 Local-only checks need no AWS account:
 
 ```bash
-git clone https://github.com/<your-fork>/memex.git
-cd memex
+git clone https://github.com/<your-fork>/memrain.git
+cd memrain
 
 make test    # bash unit tests (init.sh + audit.sh)
 make audit   # PII gate
@@ -26,7 +26,7 @@ make lint    # shellcheck if installed
 ### Bun tests
 
 ```bash
-cd deploy/memex
+cd deploy/memrain
 bun run test:sharded          # the whole suite; the ship gate
 bun run test:changed          # only files affected since origin/main
 bun test tests/foo.test.ts    # one file while iterating
@@ -37,21 +37,21 @@ keeps its WASM memory, and one process running every file runs out of it.
 `test:sharded` runs fixed-size chunks (`SHARD_SIZE`, default 20) in fresh
 processes, `JOBS` of them at a time (default half the CPUs, at most 4;
 each needs about 1.6 GB). Before the first shard it builds one migrated
-database under `$TMPDIR` and points `MEMEX_TEST_PGLITE_TEMPLATE` at it, so a
+database under `$TMPDIR` and points `MEMRAIN_TEST_PGLITE_TEMPLATE` at it, so a
 test's new database is a copy instead of a run of every migration. A test
 that has to watch migrations run clears that variable for its file (see
 `tests/migrate.test.ts`); `TEST_TEMPLATE=0` turns the template off for a
 whole run. `test:changed` is for the edit loop only.
 
 CI splits the suite across three runners by the per-file seconds in
-`deploy/memex/tests/.timings.tsv`. A new file counts as the median until it
+`deploy/memrain/tests/.timings.tsv`. A new file counts as the median until it
 is listed; refresh the file when the groups drift apart.
 
 ### Postgres tests
 
 The Bun suite runs on PGLite, which serializes transactions. Races and
 driver-specific behaviour only show up on a real Postgres, so a few tests
-read `MEMEX_TEST_POSTGRES_URL` and skip without it. To run them:
+read `MEMRAIN_TEST_POSTGRES_URL` and skip without it. To run them:
 
 ```bash
 make test-pg   # needs docker and bun
@@ -60,13 +60,13 @@ make test-pg   # needs docker and bun
 It starts a throwaway `pgvector/pgvector:pg16` container on a free
 loopback port, applies every migration to the empty database, applies
 them again (the second pass must apply nothing), runs every test file
-under `deploy/memex/tests` that reads `MEMEX_TEST_POSTGRES_URL`, and
+under `deploy/memrain/tests` that reads `MEMRAIN_TEST_POSTGRES_URL`, and
 removes the container whether the run passed or failed.
 
-With `MEMEX_TEST_POSTGRES_URL` already set, it uses that database and
+With `MEMRAIN_TEST_POSTGRES_URL` already set, it uses that database and
 starts no container. Point it only at a scratch database: migrations and
 tests write to it. A new Postgres-only test needs no registration — read
-`MEMEX_TEST_POSTGRES_URL` in the file (`describe.skipIf(!url)`) and
+`MEMRAIN_TEST_POSTGRES_URL` in the file (`describe.skipIf(!url)`) and
 `make test-pg` picks it up.
 
 CI runs the same target in the advisory `Postgres tests` job
@@ -124,7 +124,7 @@ CI runs the same target in the advisory `Postgres tests` job
 Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`.
 
 Examples:
-- `feat(memex): add code chunkers for TS / Python`
+- `feat(memrain): add code chunkers for TS / Python`
 - `fix(bootstrap): retry git clone on transient DNS failure`
 - `docs(architecture): document EFS layout`
 

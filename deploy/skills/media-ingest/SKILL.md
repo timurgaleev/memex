@@ -63,7 +63,7 @@ Every mention of a person or company with a brain page MUST create a back-link.
 | PDF | Extract text (OCR if needed) |
 | Book PDF | Extract text, identify chapters/sections |
 | Screenshot/image | OCR via vision model, extract text and entities |
-| GitHub repo | Clone, read README + key files, summarize architecture (optionally `memex index` the checkout for code-graph queries) |
+| GitHub repo | Clone, read README + key files, summarize architecture (optionally `memrain index` the checkout for code-graph queries) |
 
 ### Phase 2: Preserve raw source
 
@@ -108,7 +108,7 @@ A media item is NOT fully ingested until entity propagation is complete.
 ### Phase 5: Index
 
 Pages written via `page_put` are indexed by the server automatically; nothing
-further is needed. After a large batch, `memex reindex` refreshes everything
+further is needed. After a large batch, `memrain reindex` refreshes everything
 at once.
 
 ## Output Format

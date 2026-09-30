@@ -1,10 +1,11 @@
 ---
 name: setup
-description: Set up memex with provisioned Postgres (RDS + pgvector), AGENTS.md injection, first import
+description: Set up Memrain with provisioned Postgres (RDS + pgvector), AGENTS.md injection, first import
 triggers:
-  - "set up memex"
+  - "set up memrain"
   - "initialize brain"
-  - "memex setup"
+  - "memrain setup"
+  - "set up memex"
 tools:
   - stats
   - run_doctor
@@ -16,18 +17,18 @@ tools:
 mutating: true
 ---
 
-# Setup memex
+# Setup Memrain
 
-Set up memex from scratch. Target: working brain in under 5 minutes on an
+Set up Memrain from scratch. Target: working brain in under 5 minutes on an
 existing Postgres; under 30 including infrastructure provisioning.
 
 ## Contract
 
-- Setup completes with a working brain verified by `memex doctor --json` (all checks OK).
+- Setup completes with a working brain verified by `memrain doctor --json` (all checks OK).
 - The brain-first lookup protocol is injected into the project's AGENTS.md or equivalent.
 - Live indexing is configured and verified (a test change indexed and found via search).
 - Setup choices are tracked on the `tasks/setup-state` brain page so future upgrades know what the user adopted or declined.
-- No provider API keys are requested; memex uses AWS Bedrock exclusively (Titan for embeddings, Claude Haiku for utility calls, Claude Sonnet for synthesis-tier work), authenticated via IAM.
+- No provider API keys are requested; Memrain uses AWS Bedrock exclusively (Titan for embeddings, Claude Haiku for utility calls, Claude Sonnet for synthesis-tier work), authenticated via IAM.
 
 ## Install (if not already installed)
 
@@ -38,14 +39,14 @@ bun install
 scripts/init.sh          # interactive: secrets prefix, region, connection string
 ```
 
-## How memex connects
+## How Memrain connects
 
-memex connects directly to Postgres over the wire protocol. You need the
+Memrain connects directly to Postgres over the wire protocol. You need the
 **database connection string** (a `postgresql://` URI), not a dashboard URL
 or REST key. The password is embedded in the connection string.
 
 The connection string lives in AWS Secrets Manager under
-`<secrets_prefix>/memex-postgres-url` (default prefix: `memex`). Two gotchas:
+`<secrets_prefix>/memrain-postgres-url` (default prefix: `memrain`). Two gotchas:
 
 - The secret is a **parsed URL**: a password containing `?#&:=+%` must be
   URL-encoded before upload, or the parse silently mangles it.
@@ -53,7 +54,7 @@ The connection string lives in AWS Secrets Manager under
   Bedrock must be invocable in that region. A mismatched default region is
   the most common "everything times out" cause.
 
-**Do NOT ask for any model-provider API key.** memex uses Bedrock via the
+**Do NOT ask for any model-provider API key.** Memrain uses Bedrock via the
 host's IAM role; there is nothing to paste.
 
 ## Why managed Postgres
@@ -62,7 +63,7 @@ RDS gives you managed Postgres + pgvector (vector search built in):
 - No server to manage, automatic backups, snapshots for debugging
 - pgvector pre-installed on current engine versions, just works
 - Alternative: any Postgres with the pgvector extension (self-hosted, Neon,
-  Railway, etc.) — memex only needs the connection string
+  Railway, etc.) — Memrain only needs the connection string
 
 ## Prerequisites
 
@@ -75,21 +76,21 @@ RDS gives you managed Postgres + pgvector (vector search built in):
 ## Available init options
 
 - `scripts/init.sh` — interactive wizard (prompts for prefix, region, connection string)
-- `memex doctor --json` — health check after init
-- `memex status` — one-screen snapshot (pages, docs, chunks, embed coverage)
+- `memrain doctor --json` — health check after init
+- `memrain status` — one-screen snapshot (pages, docs, chunks, embed coverage)
 
-There is no offline mode. memex requires Postgres + pgvector.
+There is no offline mode. Memrain requires Postgres + pgvector.
 
 ## Phase A.5: Choose Shape (run BEFORE Phase A)
 
-memex supports two deployment shapes. Pick the right one before installing,
+Memrain supports two deployment shapes. Pick the right one before installing,
 because picking wrong creates duplicate work that's painful to unwind.
 
 Ask the user this BEFORE running any init:
 
 > "Two deployment shapes:
 >  1. **Server host (default)** — this machine (or an EC2 instance) runs the
->     memex server in docker compose, owns the DB connection, and exposes MCP.
+>     Memrain server in docker compose, owns the DB connection, and exposes MCP.
 >     Pick this if you're setting up the brain itself.
 >  2. **Client attach** — the brain already runs on another machine, and this
 >     install just calls it over MCP. No local DB, no local server on this
@@ -106,13 +107,13 @@ Continue with the provisioning + init setup below.
 
 ### If the user picks 2 (client attach)
 
-1. **Confirm the host is up.** Ask: "Is the memex server already running on
+1. **Confirm the host is up.** Ask: "Is the Memrain server already running on
    the host machine?" If no, the user needs to set up the host first
    (Phases A–C on the host). Don't configure a client until the host is up.
 
 2. **Get a bearer token from the host operator.** On the host:
    ```bash
-   memex auth
+   memrain auth
    ```
    surfaces the token material. The public ingress accepts the public bearer;
    internal-only tools (destructive ops, private reads) are reachable only
@@ -136,7 +137,7 @@ Continue with the provisioning + init setup below.
    MCP — the agent uses the same search/query/page_get tools, they just
    round-trip through the host.
 
-If the MCP client config already has a memex entry, a previous setup already
+If the MCP client config already has a Memrain entry, a previous setup already
 configured this machine. Accept the existing config or replace it
 deliberately — don't stack duplicates.
 
@@ -153,16 +154,16 @@ Provision RDS via the repo's terraform:
    ```bash
    docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
    ```
-6. Verify: `memex doctor --json`
+6. Verify: `memrain doctor --json`
 
 ## Phase B: BYO Postgres (alternative)
 
 If the user already has Postgres with pgvector:
 
 1. Get the connection string from the user.
-2. Store it under `<secrets_prefix>/memex-postgres-url` (URL-encode the
+2. Store it under `<secrets_prefix>/memrain-postgres-url` (URL-encode the
    password if it contains `?#&:=+%`).
-3. Start the server and verify: `memex doctor --json`
+3. Start the server and verify: `memrain doctor --json`
 
 If the connection fails with ECONNREFUSED, check the security group /
 firewall between the host and the DB, and confirm the region and hostname —
@@ -174,7 +175,7 @@ a reachable-from-laptop DB is not automatically reachable from the server.
    markdown content:
 
 ```bash
-echo "=== memex Environment Discovery ==="
+echo "=== memrain Environment Discovery ==="
 for dir in /data/* ~/git/* ~/Documents/*; do
   if [ -d "$dir" ]; then
     md_count=$(find "$dir" -name "*.md" -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | wc -l | tr -d ' ')
@@ -191,7 +192,7 @@ echo "=== Discovery Complete ==="
    source; the brain's own pages are DB-canonical and separate.
 
    ```bash
-   memex index <dir>
+   memrain index <dir>
    ```
 
    For large imports, run it detached (`nohup ... &`) so it survives session
@@ -199,14 +200,14 @@ echo "=== Discovery Complete ==="
 
 3. **Prove search works.** Pick a semantic query based on what you imported:
    ```bash
-   memex search "<topic from the imported data>"
+   memrain search "<topic from the imported data>"
    ```
    This is the magical moment: the user sees search finding things grep
    couldn't.
 
 4. **Start embeddings.**
    ```bash
-   memex embed
+   memrain embed
    ```
    Keyword search works NOW; semantic search improves as embeddings complete.
    Embeddings run through Bedrock Titan — no API key, just IAM.
@@ -216,8 +217,8 @@ echo "=== Discovery Complete ==="
    forward, but a fresh import benefits from one full pass:
 
    ```bash
-   memex cycle          # runs the full maintenance pipeline once
-   memex call stats '{}'   # verify links > 0
+   memrain cycle        # runs the full maintenance pipeline once
+   memrain call stats '{}' # verify links > 0
    ```
 
    After this, `graph_query` / `traverse_graph` work and search ranks
@@ -248,7 +249,7 @@ install -m 644 deploy/systemd/*.{service,timer} /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now <unit>
 ```
 
-If `memex doctor` reports pending migrations, they apply on server boot;
+If `memrain doctor` reports pending migrations, they apply on server boot;
 re-run doctor after a restart to confirm a clean state.
 
 ## Phase D: Brain-First Lookup Protocol
@@ -257,9 +258,9 @@ Inject the brain-first lookup protocol into the project's AGENTS.md (or
 equivalent). This replaces grep-based knowledge lookups with structured
 brain queries.
 
-### BEFORE (grep) vs AFTER (memex)
+### BEFORE (grep) vs AFTER (Memrain)
 
-| Task | Before (grep) | After (memex) |
+| Task | Before (grep) | After (Memrain) |
 |------|---------------|-----------------|
 | Find a person | `grep -r "Pedro" notes/` | `search "Pedro"` |
 | Understand a topic | `grep -rl "deal" notes/ \| head -5 && cat ...` | `query "what's the status of the deal"` |
@@ -274,8 +275,8 @@ brain queries.
 4. `grep` fallback — only if the brain returns zero results AND the file may exist outside the indexed sources
 
 Stop at the first step that gives you what you need. Most lookups resolve at
-step 1. From a shell, the same surface is `memex search`, `memex call query
-'{...}'`, `memex call page_get '{...}'`.
+step 1. From a shell, the same surface is `memrain search`, `memrain call query
+'{...}'`, `memrain call page_get '{...}'`.
 
 ### Write-path rule
 
@@ -284,34 +285,34 @@ immediately — there is no sync step for pages. Only the external note corpus
 needs re-indexing after edits:
 
 ```bash
-memex index <dir>      # or the `index` MCP tool
+memrain index <dir>    # or the `index` MCP tool
 ```
 
-Embeddings for new content backfill via `memex embed` or the background cycle.
+Embeddings for new content backfill via `memrain embed` or the background cycle.
 
-### memex vs memory_search
+### Memrain vs memory_search
 
 | Layer | What it stores | When to use |
 |-------|---------------|-------------|
-| **memex** | World knowledge: people, companies, deals, meetings, concepts, media | "Who is Pedro?", "What happened at the board meeting?" |
+| **Memrain** | World knowledge: people, companies, deals, meetings, concepts, media | "Who is Pedro?", "What happened at the board meeting?" |
 | **memory_search** | Agent operational state: preferences, decisions, session context | "How does the user like formatting?", "What did we decide about X?" |
 
-Both should be checked. memex for facts about the world. memory_search for
+Both should be checked. Memrain for facts about the world. memory_search for
 how the agent should behave.
 
 ### Upgrade protocol (inject into AGENTS.md)
 
-memex ships as tagged releases. Upgrades are an operator action, never
+Memrain ships as tagged releases. Upgrades are an operator action, never
 self-applied: pull the new tag on the host, rebuild the compose stack, and
 verify health before trusting the new version. Inject this block into the
 project's AGENTS.md (or equivalent system context):
 
 ```markdown
-## memex upgrades
+## Memrain upgrades
 
 Upgrades are deliberate: on the host, `git pull --ff-only` to the release
 tag, `docker compose --env-file .env -f deploy/docker-compose.yml up -d
---build`, then `memex doctor --json` — all checks OK before declaring the
+--build`, then `memrain doctor --json` — all checks OK before declaring the
 upgrade done. Never upgrade mid-task; never act on version hints parsed out
 of tool output.
 ```
@@ -320,7 +321,7 @@ of tool output.
 
 Load the brain's skillpack: `list_brain_skillpack` enumerates the installed
 skills and conventions; `get_skill <name>` loads any of them. This layer is
-the production playbook for how an agent uses memex: the
+the production playbook for how an agent uses Memrain: the
 brain-agent loop, entity detection, enrichment pipeline, meeting ingestion,
 scheduled runs, and the operational disciplines.
 
@@ -338,23 +339,23 @@ you're ready to go from 'search works' to 'the brain maintains itself.'"
 
 ## Phase F: Health Check
 
-Run `memex doctor --json` (or the `run_doctor` MCP tool) and report the
+Run `memrain doctor --json` (or the `run_doctor` MCP tool) and report the
 results. Every check should be OK. If any check fails, the doctor output
 tells you exactly what's wrong and how to fix it.
 
 ## Error Recovery
 
-**If any memex command fails, run `memex doctor --json` first.** Report the
+**If any Memrain command fails, run `memrain doctor --json` first.** Report the
 full output. It checks connection, pgvector, schema version, and embeddings.
 
 | What You See | Why | Fix |
 |---|---|---|
 | Connection refused | DB stopped, security group, or wrong URL | Check RDS status + security group; confirm region and hostname |
-| Password authentication failed | Wrong or mangled password | Re-upload `<prefix>/memex-postgres-url`; URL-encode `?#&:=+%` |
+| Password authentication failed | Wrong or mangled password | Re-upload `<prefix>/memrain-postgres-url`; URL-encode `?#&:=+%` |
 | pgvector not available | Extension not enabled | Run `CREATE EXTENSION vector;` on the DB |
 | Bedrock AccessDenied / model not enabled | IAM or model access missing in region | Enable model access in the Bedrock console; check the IAM invoke policy |
 | No pages found | Query before import | Run Phase C first |
-| Embed coverage stuck at 0 | Bedrock unreachable or wrong region | `memex doctor`; confirm the instance region matches the Bedrock region |
+| Embed coverage stuck at 0 | Bedrock unreachable or wrong region | `memrain doctor`; confirm the instance region matches the Bedrock region |
 
 ## Phase G: Update Awareness (if not already configured)
 
@@ -384,20 +385,20 @@ optional when a note corpus exists.
      configured sources on cadence — verify it's on and healthy via
      `get_status_snapshot`.
    - **systemd timer** (host-side push): a timer running
-     `memex index <dir> && memex embed` every 5–30 minutes for corpora the
+     `memrain index <dir> && memrain embed` every 5–30 minutes for corpora the
      server can't watch.
    - **Agent-side**: the agent harness's own scheduler invoking the `index`
      tool after note-editing sessions.
 
 3. **Verify indexing works.** Don't just check that the command ran. Check
    that it worked:
-   - `memex status` should show page count close to the indexable file count.
+   - `memrain status` should show page count close to the indexable file count.
    - If page count is way too low, files are being dropped — read the ingest
      log, don't guess.
    - Edit a test note and confirm the change appears in `search`.
 
-4. **Chain index + embed.** Always run both: `memex index <dir> && memex
-   embed`. For small batches, embeddings generate inline; `memex embed` is
+4. **Chain index + embed.** Always run both: `memrain index <dir> && memrain
+   embed`. For small batches, embeddings generate inline; `memrain embed` is
    the safety net for any stale chunks.
 
 Tell the user: "Live indexing is configured. The brain will stay current
@@ -407,8 +408,8 @@ automatically. I'll verify it's working in the next phase."
 
 Run the full verification pass to confirm the entire installation works.
 
-1. `memex doctor --json` — all checks OK
-2. `memex status` — pages, docs, chunks, embed coverage all nonzero and plausible
+1. `memrain doctor --json` — all checks OK
+2. `memrain status` — pages, docs, chunks, embed coverage all nonzero and plausible
 3. An MCP round trip — `whoami`, then `search` for known content, through the agent's configured MCP entry
 4. The live-indexing check from Phase H (edit → index → found in search)
 5. Fix any failures before declaring setup complete
@@ -416,7 +417,7 @@ Run the full verification pass to confirm the entire installation works.
 The most important one is check 4: "indexing ran" is not the same as
 "indexing worked."
 
-Tell the user: "I've verified the full memex installation. Here's the status
+Tell the user: "I've verified the full Memrain installation. Here's the status
 of each check: [list results]. Everything is working / [specific item] needs
 attention."
 
@@ -432,7 +433,7 @@ data. Stopping here is like installing a phone and never adding contacts.
 
 Present this immediately after verification passes:
 
-> "✅ memex is set up and verified. Now let's fill it with your data.
+> "✅ Memrain is set up and verified. Now let's fill it with your data.
 >
 > I can import your existing notes, pull in prior conversations, and seed
 > people/companies/concepts pages from what you already have — all in one
@@ -460,7 +461,7 @@ or 'cold start'."
 
 After presenting the recommended directories (Phase C/E) and the user selects
 which ones to create, write the `tasks/setup-state` brain page recording:
-- `version_applied`: current memex release
+- `version_applied`: current Memrain release
 - `skillpack_version_applied`: current skillpack state
 - `schema_choices.adopted`: directories the user created
 - `schema_choices.declined`: directories the user explicitly skipped
@@ -472,7 +473,7 @@ re-suggesting things the user already declined.
 ## Anti-Patterns
 
 - **Ending setup without offering cold-start.** An empty brain is useless. Phase J (cold-start) is where setup pays off. Always present the "Ready to populate?" prompt after verification. Skipping this is like installing an app and never logging in.
-- **Asking for a model-provider API key.** memex talks to Bedrock via IAM; only the database connection string is needed from the user.
+- **Asking for a model-provider API key.** Memrain talks to Bedrock via IAM; only the database connection string is needed from the user.
 - **Skipping live indexing setup.** If the note corpus isn't indexed automatically, the brain falls behind and search returns stale answers. Phase H is not optional when a corpus exists.
 - **Declaring setup complete without verification.** "The command ran" is not the same as "it worked." Edit a test note, index, search for the changed text.
 - **Ignoring region mismatches.** The instance, the RDS endpoint, and Bedrock model access must agree on region. A mismatch produces confusing timeouts and zero embed coverage — check region before anything else.
@@ -481,7 +482,7 @@ re-suggesting things the user already declined.
 ## Output Format
 
 ```
-MEMEX SETUP COMPLETE
+MEMRAIN SETUP COMPLETE
 ====================
 
 Engine: [Postgres/RDS + pgvector]
@@ -503,10 +504,10 @@ with a bullet list.** The bullet list is for when the user defers cold-start.
 ## Tools Used
 
 - `scripts/init.sh` — create/configure the brain (host)
-- `memex index <dir>` — import/index note files
-- `memex search <query>` — search brain
-- `memex doctor --json` — health check
-- `memex embed` — generate/backfill embeddings
-- `memex cycle` — one full maintenance pass
-- `memex status` — page count + embed coverage snapshot
+- `memrain index <dir>` — import/index note files
+- `memrain search <query>` — search brain
+- `memrain doctor --json` — health check
+- `memrain embed` — generate/backfill embeddings
+- `memrain cycle` — one full maintenance pass
+- `memrain status` — page count + embed coverage snapshot
 - MCP: `stats`, `run_doctor`, `source_health`, `sources_list`, `index`, `search`, `page_put`

@@ -7,9 +7,9 @@
 - Always confirm before destructive ops (commit, terraform apply, EC2 recreate).
 - TDD where the logic is testable; smoke-test where the network is the test.
 - Containers run on a single EC2; deploy = `git pull && docker compose up -d --build` over SSM.
-- memex's brain index is rebuildable from source content; if RDS is wiped, re-sweep restores it (~5-10 min, $0 — Titan is credit-eligible).
-- memex is reached over MCP only (`POST /mcp`, through cloudflared or — with `ingress_mode = "caddy"` — a Caddy sidecar on the instance's own IP). No chat surface, no bot — just MCP clients (Claude Code, Codex, claude.ai, ChatGPT, …).
-- Callers authenticate with a personal access token bound to a source (`memex auth create <name> --source <src>`) or an OAuth client (`memex auth register-client`, enrollment mode for a shared team connector). The static public bearer is permanent, tenant-less and read-limited. Guides: `docs/clients/`.
+- Memrain's brain index is rebuildable from source content; if RDS is wiped, re-sweep restores it (~5-10 min, $0 — Titan is credit-eligible).
+- Memrain is reached over MCP only (`POST /mcp`, through cloudflared or — with `ingress_mode = "caddy"` — a Caddy sidecar on the instance's own IP). No chat surface, no bot — just MCP clients (Claude Code, Codex, claude.ai, ChatGPT, …).
+- Callers authenticate with a personal access token bound to a source (`memrain auth create <name> --source <src>`) or an OAuth client (`memrain auth register-client`, enrollment mode for a shared team connector). The static public bearer is permanent, tenant-less and read-limited. Guides: `docs/clients/`.
 
 ## Required workflow — run the skill for every change
 
@@ -34,10 +34,10 @@ features, fixes, refactors, docs, infra — in order:
 Both are non-negotiable and apply even to one-line fixes — the cost of
 one extra skill/agent run is cheaper than a production regression.
 
-## Build & test (memex)
+## Build & test (Memrain)
 
 ```bash
-cd deploy/memex
+cd deploy/memrain
 bun install               # frozenLockfile=true; never commit lock drift
 bun run test:sharded      # the full suite — a few minutes, JOBS shards at once
 bun run test:changed      # only files affected since origin/main
@@ -57,7 +57,7 @@ There is no `bun run build` step for runtime — the daemon starts via `bun run 
 
 ## CLI commands worth knowing
 
-`bun run src/cli.ts <cmd>` (aka `memex <cmd>` in the container). `--help` lists them all; the ones you'll reach for most:
+`bun run src/cli.ts <cmd>` (aka `memrain <cmd>` in the container). `--help` lists them all; the ones you'll reach for most:
 
 ```
 export [--dir DIR] [--source ID]     # dump every live page to a markdown tree (frontmatter + body,
@@ -66,7 +66,7 @@ export [--dir DIR] [--source ID]     # dump every live page to a markdown tree (
 eval-probe [--limit N] [--max-usd N] # replay the eval set, append a row to eval_snapshots (nightly
                                       #   probe); --max-usd caps per-run spend (converts to a query cap).
 cycle [--phases a,b,c] [--stale-days N]  # run one maintenance cycle on demand. Now takes the daemon's
-                                      #   `memex-cycle` advisory lock — a one-shot skips (with a message)
+                                      #   `memrain-cycle` advisory lock — a one-shot skips (with a message)
                                       #   when the periodic loop holds it, so the two can't double-spend.
 ```
 
@@ -78,17 +78,17 @@ The simplest "does my change build" check uses Docker locally (matches the EC2 a
 
 ```bash
 cd deploy
-docker compose build memex            # ~30s on warm cache
+docker compose build memrain          # ~30s on warm cache
 ```
 
 Full local up requires the secrets — they're gitignored and only fetched on the EC2. Don't try to bring up the stack on your laptop; smoke-test on EC2.
 
 ## Deploy
 
-Always: `git push origin main` → SSH/SSM into EC2 → `cd /opt/<project> && git pull && docker compose --env-file .env -f deploy/docker-compose.yml up -d --build` → wait for `memex` to report `Up <N> (healthy)` → smoke-test the MCP surface from inside the network:
+Always: `git push origin main` → SSH/SSM into EC2 → `cd /opt/<project> && git pull && docker compose --env-file .env -f deploy/docker-compose.yml up -d --build` → wait for `memrain` to report `Up <N> (healthy)` → smoke-test the MCP surface from inside the network:
 
 ```bash
-docker exec deploy-memex-1 sh -c '
+docker exec deploy-memrain-1 sh -c '
   echo "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"stats\"}}" \
     | wget -qO- --post-file=/dev/stdin --header=Content-Type:application/json http://127.0.0.1:18790/mcp
 '
@@ -97,7 +97,7 @@ docker exec deploy-memex-1 sh -c '
 Then confirm `brain.<domain>/mcp` answers an MCP client (Claude Code).
 
 Never:
-- `terraform taint aws_instance.memex`
+- `terraform taint aws_instance.memrain`
 - `terraform apply` without showing plan + getting explicit "yes apply"
 - `docker compose down` (it's a no-op for state but cuts traffic; use `restart` instead)
 
@@ -138,15 +138,15 @@ and are not bumped as part of a release.
 ```
 AWS_REGION=<your-region>          # required
 AWS_PROFILE=default               # required, not optional
-SECRETS_PREFIX=memex              # AWS Secrets Manager namespace
-MEMEX_VAULT_PATHS=/memory         # paths memex sweeps for content
-MEMEX_DREAM_INTERVAL_S=21600
-MEMEX_DREAM_STALE_DAYS=30
-MEMEX_HOST=0.0.0.0                # in the container; loopback off-EC2
+SECRETS_PREFIX=memrain            # AWS Secrets Manager namespace
+MEMRAIN_VAULT_PATHS=/memory       # paths memrain sweeps for content
+MEMRAIN_DREAM_INTERVAL_S=21600
+MEMRAIN_DREAM_STALE_DAYS=30
+MEMRAIN_HOST=0.0.0.0              # in the container; loopback off-EC2
 BRAIN_PORT=18790
-MEMEX_PUBLIC_BEARER=<token>       # static public bearer: no tenant, public read
+MEMRAIN_PUBLIC_BEARER=<token>     # static public bearer: no tenant, public read
                                   #   subset only; people get PATs or OAuth clients
-MEMEX_INTERNAL_TOKEN=<token>      # gates MCP write tools on the internal path
+MEMRAIN_INTERNAL_TOKEN=<token>    # gates MCP write tools on the internal path
 TUNNEL_TOKEN=<cloudflared>        # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a different alias
 ```
 
@@ -154,14 +154,25 @@ TUNNEL_TOKEN=<cloudflared>        # NOT CLOUDFLARE_TUNNEL_TOKEN — that's a dif
 
 | Symptom | Likely cause |
 |---|---|
-| Public `/mcp` returns 401 | The token is unknown or revoked (`memex auth list`, `memex auth list-clients`) |
-| Public `/mcp` returns 503 `public bearer token not configured` | `MEMEX_PUBLIC_BEARER` is missing from `memex.env`; every credential on public ingress, PATs and OAuth included, fails until it is set |
-| memex healthcheck flaps `starting → unhealthy` | PGLite cold-init / RDS unreachable; check `docker logs deploy-memex-1` |
-| MCP write tool returns -32001 on internal path | `MEMEX_INTERNAL_TOKEN` not configured or not sent |
+| Public `/mcp` returns 401 | The token is unknown or revoked (`memrain auth list`, `memrain auth list-clients`) |
+| Public `/mcp` returns 503 `public bearer token not configured` | `MEMRAIN_PUBLIC_BEARER` is missing from `memrain.env`; every credential on public ingress, PATs and OAuth included, fails until it is set |
+| Memrain healthcheck flaps `starting → unhealthy` | PGLite cold-init / RDS unreachable; check `docker logs deploy-memrain-1` |
+| MCP write tool returns -32001 on internal path | `MEMRAIN_INTERNAL_TOKEN` not configured or not sent |
 | Cloudflared retries forever, no traffic | `--protocol http2` not set; SG blocks UDP |
-| memex `EACCES` reading `/memory` | Container running as uid 1000 (alpine `bun`); needs root or correct EFS chown |
+| Memrain `EACCES` reading `/memory` | Container running as uid 1000 (alpine `bun`); needs root or correct EFS chown |
 | SSM `ConnectionLost`, healthz down | Likely OOM on too-small instance during sweep |
 | MCP tool returns `insufficient_scope` or `permission_denied` | The credential lacks the scope, or the tool is operator-only; `whoami` shows what it carries |
+
+## Compatibility code
+
+Memrain was called memex before 1.0.0, and the code keeps reading the old
+names on purpose: the `MEMEX_*` environment fallback, `memex:` fence markers in
+pages, `memex_` token and client id prefixes, the `x-memex-*` ingest headers,
+the legacy SQL functions (`memex_fact_claim_key` and friends), the
+`.memex-lock` PGLite lock, the `memex` command and the `memex` compose network
+alias. Existing installs and stored data depend on them. Do not remove or
+rename them outside an announced release (see UPGRADING.md and the
+CONFIGURATION.md "Legacy names" section).
 
 ## When you don't know what to do
 

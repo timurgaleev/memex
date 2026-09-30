@@ -44,7 +44,7 @@ the output is the delta — not a re-narration of settled fact.
 |------|-----|
 | Deep research with citations | **This skill** — brain context + web search + synthesis |
 | Quick URL content | the agent's plain page-fetch tool |
-| Brain-only lookup | `search` (MCP) / `memex search` |
+| Brain-only lookup | `search` (MCP) / `memrain search` |
 | Real-time social monitoring | external social-media collectors |
 | Structured data lookup against a tracker | `skills/data-research/SKILL.md` |
 

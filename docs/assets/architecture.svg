@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 360" width="1000" height="360"
      font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
      role="img"
-     aria-label="memex data flow: your notes and code are chunked, embedded, stored in Postgres with pgvector, retrieved by hybrid search, and served to your AI agent over MCP.">
+     aria-label="Memrain data flow: your notes and code are chunked, embedded, stored in Postgres with pgvector, retrieved by hybrid search, and served to your AI agent over MCP.">
   <defs>
     <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#0C1426"/>
@@ -21,8 +21,8 @@
   <rect x="0.5" y="0.5" width="999" height="359" rx="18" fill="none" stroke="#1E2A44" stroke-width="1"/>
 
   <!-- header (fills set as attributes so they survive even if CSS is stripped) -->
-  <text x="40" y="60" fill="#E8EEF6" font-weight="800" font-size="30" letter-spacing="0.5">memex</text>
-  <text x="168" y="60" fill="#8FA3BB" font-size="15">your self-hosted AI brain &#8212; notes &amp; code, searchable by any AI agent</text>
+  <text x="40" y="60" fill="#E8EEF6" font-weight="800" font-size="30" letter-spacing="0.5">memrain</text>
+  <text x="198" y="60" fill="#8FA3BB" font-size="15">your self-hosted AI brain &#8212; notes &amp; code, searchable by any AI agent</text>
 
   <!-- connecting rail + animated flow (animation is a bonus; the static line reads fine) -->
   <line x1="120" y1="210" x2="880" y2="210" stroke="#243653" stroke-width="3"/>

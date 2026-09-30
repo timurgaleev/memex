@@ -26,11 +26,11 @@ mutating: false
 > **Convention:** see conventions/cross-modal.yaml (via `get_skill conventions/cross-modal`)
 > for the review pairs and refusal routing chain.
 
-> **Relationship to `memex eval`:** This skill is the manual mid-flow
+> **Relationship to `memrain eval`:** This skill is the manual mid-flow
 > gate (one model reviews work product before commit, with refusal
-> routing). The `memex eval` CLI is a sibling surface: it scores retrieval
+> routing). The `memrain eval` CLI is a sibling surface: it scores retrieval
 > and skill behavior against documented fixtures *before* tests cement
-> behavior. Use this skill for ad-hoc second opinions; use `memex eval`
+> behavior. Use this skill for ad-hoc second opinions; use `memrain eval`
 > for the skillify quality gate. The two are complementary, not redundant.
 
 ## Contract

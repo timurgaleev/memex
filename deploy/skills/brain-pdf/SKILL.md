@@ -40,7 +40,7 @@ toolchain). Output is suitable for:
 ## Prerequisite: a host-side PDF renderer
 
 This skill depends on a markdown-to-PDF renderer available on the host
-where the agent runs. memex itself does not render PDFs — it serves the
+where the agent runs. Memrain itself does not render PDFs — it serves the
 page body; rendering is the agent's job.
 
 Verify a renderer is available before invoking (check for the agent
@@ -67,12 +67,12 @@ prerequisite is missing instead of improvising a degraded rendering.
 SLUG="path/to/page"
 
 # 1. Confirm the page exists and pull the raw markdown body.
-#    memex is DB-canonical: there is no repo checkout of the page —
+#    memrain is DB-canonical: there is no repo checkout of the page —
 #    the body always comes from the brain over MCP.
 RAW=$(mktemp "$TMPDIR/brain-page-XXXXXX.md")
-memex call page_get "{\"slug\":\"$SLUG\"}" > /dev/null \
+memrain call page_get "{\"slug\":\"$SLUG\"}" > /dev/null \
   || { echo "Page $SLUG not found" >&2; exit 1; }
-memex call page_get "{\"slug\":\"$SLUG\"}" | jq -r '.content' > "$RAW"
+memrain call page_get "{\"slug\":\"$SLUG\"}" | jq -r '.content' > "$RAW"
 
 # 2. Strip YAML frontmatter — sed: skip the opening '---' through the
 #    closing '---' (lines 1..N), then keep everything after.

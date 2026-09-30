@@ -19,7 +19,7 @@ writes_pages:
 # capture — the single ingestion entrypoint
 
 When the user wants to save a thought, an article snippet, a transcript
-fragment, or any text into their brain, run `memex capture`. Don't reach
+fragment, or any text into their brain, run `memrain capture`. Don't reach
 for a raw `page_put` from the shell — `capture` is the front door and it
 handles slugging, frontmatter, and the receipt for you.
 
@@ -45,7 +45,7 @@ handles slugging, frontmatter, and the receipt for you.
 
 ## What it does
 
-`memex capture` resolves to a `page_put` call against the brain. The page
+`memrain capture` resolves to a `page_put` call against the brain. The page
 lands in the DB in one move and is indexed for retrieval. The default slug
 is `inbox/YYYY-MM-DD-<hash8>` so captures cluster in a predictable triage
 location. From an MCP client (no shell), the equivalent is a direct
@@ -54,13 +54,13 @@ location. From an MCP client (no shell), the equivalent is a direct
 ## How to use
 
 ```bash
-memex capture "the thought I want to remember"
-memex capture --file ./notes/today.md
-echo "from a pipe" | memex capture --stdin
-memex capture "..." --slug daily/2026-05-21
-memex capture "..." --type idea --source voice-whisper
-memex capture "..." --quiet          # script-friendly: prints just the slug
-memex capture "..." --json           # structured output for agents
+memrain capture "the thought I want to remember"
+memrain capture --file ./notes/today.md
+echo "from a pipe" | memrain capture --stdin
+memrain capture "..." --slug daily/2026-05-21
+memrain capture "..." --type idea --source voice-whisper
+memrain capture "..." --quiet        # script-friendly: prints just the slug
+memrain capture "..." --json         # structured output for agents
 ```
 
 ## Defaults
@@ -82,17 +82,17 @@ captured:
   captured_at:   2026-05-21T04:15:00.000Z
 ```
 
-`--quiet` prints only the slug (use for `SLUG=$(memex capture "..." --quiet)`).
+`--quiet` prints only the slug (use for `SLUG=$(memrain capture "..." --quiet)`).
 `--json` prints structured output for downstream tools.
 
 ## Anti-Patterns
 
-- **Don't hand-roll a `memex call page_put` for a quick thought.** That's the
+- **Don't hand-roll a `memrain call page_put` for a quick thought.** That's the
   raw per-page primitive; it doesn't know about default slug generation,
   content-type heuristics, or the receipt block. `capture` is the
   human-facing wrapper.
-- **Don't try to bulk-import dozens of files by looping over `memex capture`.**
-  That's what `memex index` is for. Capture is for single thoughts, single
+- **Don't try to bulk-import dozens of files by looping over `memrain capture`.**
+  That's what `memrain index` is for. Capture is for single thoughts, single
   notes, single transcripts.
 - **Don't pre-format the content yourself with frontmatter if you don't need to.**
   Capture wraps plain prose in sensible frontmatter (type + title +
@@ -103,7 +103,7 @@ captured:
 
 ## When NOT to use this skill
 
-- Bulk ingestion of many files → `skills/media-ingest/SKILL.md` or `memex index` instead
+- Bulk ingestion of many files → `skills/media-ingest/SKILL.md` or `memrain index` instead
 - Article/link with author + publication metadata → `skills/idea-ingest/SKILL.md` (it knows to build the people page)
 - Meeting transcripts → `skills/meeting-ingestion/SKILL.md` (attendee enrichment)
 

@@ -17,7 +17,7 @@ which one applies to their current task.
 
 ## When to surface a calibration warning
 
-The doctor checks (`run_doctor` / `memex doctor`) that watch this loop:
+The doctor checks (`run_doctor` / `memrain doctor`) that watch this loop:
 
 - `abandoned_threads` — informational. Count of high-conviction takes
   (weight >= 0.7) older than 12 months that haven't been superseded or

@@ -84,7 +84,7 @@ job.
 Before submitting batch jobs:
 
 - Check active queue depth via `jobs_list` with an active-status filter
-  (or `memex jobs` from the shell)
+  (or `memrain jobs` from the shell)
 - If active > 5, stagger new submits so you don't swarm the queue
 - The server throttles, but don't dump 20 jobs at once
 

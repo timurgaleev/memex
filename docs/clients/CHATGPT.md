@@ -1,45 +1,48 @@
 # Connect ChatGPT
 
-ChatGPT reaches memex as a remote MCP server in two ways:
+ChatGPT reaches Memrain as a remote MCP server in two ways:
 
 - **Developer mode**, where a person creates an app for their own account;
 - **a workspace app** on Business or Enterprise, which an admin creates and
   publishes for the workspace.
 
-Both use OAuth with a client you register ahead of time: memex keeps Dynamic
+Both use OAuth with a client you register ahead of time: Memrain keeps Dynamic
 Client Registration off and does not support Client ID Metadata Documents, so
 paste a static client ID and secret into the app's OAuth settings.
 
-`memex …` below is the CLI on the host:
-`docker exec deploy-memex-1 bun run src/cli.ts …` in an SSM session.
+A connector set up before the rename to Memrain keeps working: the URL is
+unchanged and so are its credentials. Renaming its display name is optional.
+
+`memrain …` below is the CLI on the host:
+`docker exec deploy-memrain-1 bun run src/cli.ts …` in an SSM session.
 `<issuer>` is your public origin, for example `https://brain.<domain>`.
 
 ## Prerequisites
 
-- memex is deployed, `curl -s <issuer>/health` returns `{"ok":true,...}`, and
-  `MEMEX_PUBLIC_URL` is `<issuer>`.
+- Memrain is deployed, `curl -s <issuer>/health` returns `{"ok":true,...}`, and
+  `MEMRAIN_PUBLIC_URL` is `<issuer>`.
 - A source per person:
 
   ```bash
-  memex sources register alice --kind other --path-prefix tenant:alice
+  memrain sources register alice --kind other --path-prefix tenant:alice
   ```
 
 ## The callback
 
-memex returns `iss` on every authorization response and advertises
+Memrain returns `iss` on every authorization response and advertises
 `authorization_response_iss_parameter_supported: true`. OpenAI documents that
 an authorization server meeting that requirement gets the stable redirect URI
 `https://chatgpt.com/connector_platform_oauth_redirect`; without it ChatGPT uses
 a per-connection `https://chatgpt.com/connector/oauth/{callback_id}`. Register
 the stable one. If the browser ever reports the per-connection form, add that
-exact URL with `memex auth set-redirect-uris`.
+exact URL with `memrain auth set-redirect-uris`.
 
 ## One person (developer mode)
 
 1. Register a confidential client bound to the person's source:
 
    ```bash
-   memex auth register-client chatgpt-alice \
+   memrain auth register-client chatgpt-alice \
      --scopes 'read write' --source alice \
      --redirect-uris 'https://chatgpt.com/connector_platform_oauth_redirect'
    ```
@@ -54,9 +57,9 @@ exact URL with `memex auth set-redirect-uris`.
    - Create an app for a remote MCP server (the **+** in the apps/plugins
      list), URL `<issuer>/mcp`, authentication **OAuth**, and enter the client
      ID and secret in its OAuth fields.
-   - Connect; the browser goes to memex's `/authorize` and back.
+   - Connect; the browser goes to Memrain's `/authorize` and back.
 
-With `MEMEX_OAUTH_REQUIRE_LOGIN=1` the browser is sent to `/admin/login` first,
+With `MEMRAIN_OAUTH_REQUIRE_LOGIN=1` the browser is sent to `/admin/login` first,
 which only the operator can pass. For anyone else, turn the flag off or use
 enrollment mode as below.
 
@@ -66,13 +69,13 @@ One app serves the whole workspace, so bind each person at sign-in with
 enrollment codes, exactly as for a Claude organisation:
 
 ```bash
-memex auth register-client chatgpt-team \
+memrain auth register-client chatgpt-team \
   --tenant-mode enrollment --scopes 'read write' --source default \
   --redirect-uris 'https://chatgpt.com/connector_platform_oauth_redirect'
-memex auth enroll alice --label alice --client <client_id> --ttl 30d
+memrain auth enroll alice --label alice --client <client_id> --ttl 30d
 ```
 
-Confirm with `memex auth list-clients` that its `grant_types` are
+Confirm with `memrain auth list-clients` that its `grant_types` are
 `["authorization_code","refresh_token"]` only; the admin will hold the secret,
 and it mints nothing without a code.
 
@@ -86,7 +89,7 @@ for Claude: see [CLAUDE_TEAM.md](./CLAUDE_TEAM.md#day-2).
 
 ## Which tools ChatGPT sees
 
-`tools/list` returns every memex tool to an OAuth caller, each with
+`tools/list` returns every Memrain tool to an OAuth caller, each with
 `annotations`: `readOnlyHint: true` on the read tools, and on the others
 `readOnlyHint: false`, `destructiveHint` (true for tools that delete or
 overwrite, such as `page_put`, `page_delete`, `forget_fact`) and
@@ -95,25 +98,25 @@ actions. The list is not narrowed by scope: a call the token's scope does not
 cover is refused with `insufficient_scope`, and operator tools (`stats`,
 `run_doctor`, `get_status_snapshot`, …) with `permission_denied`.
 
-memex has a `search` tool but no `fetch` tool. Whether a given ChatGPT surface
+Memrain has a `search` tool but no `fetch` tool. Whether a given ChatGPT surface
 (deep research, company knowledge) needs that pair is not verified here.
 
 ## Verify
 
-Ask ChatGPT to call memex's `whoami` tool: `write_source` should be the
-person's source. On the host, `memex auth list-clients` shows the client and
-`memex auth enrollments --client <client_id>` shows redeemed codes.
+Ask ChatGPT to call Memrain's `whoami` tool: `write_source` should be the
+person's source. On the host, `memrain auth list-clients` shows the client and
+`memrain auth enrollments --client <client_id>` shows redeemed codes.
 
 ## Troubleshooting
 
 | Symptom | First check |
 |---|---|
-| `redirect_uri is not registered for this client` | ChatGPT sent a per-connection callback. Add the URL the error shows: `memex auth set-redirect-uris <client_id> https://chatgpt.com/connector_platform_oauth_redirect <that-url>`. |
-| `invalid_target` | ChatGPT sends `resource=<the URL you configured>`. memex accepts `<issuer>` and `<issuer>/mcp` only; fix the app's URL or `MEMEX_PUBLIC_URL`. |
+| `redirect_uri is not registered for this client` | ChatGPT sent a per-connection callback. Add the URL the error shows: `memrain auth set-redirect-uris <client_id> https://chatgpt.com/connector_platform_oauth_redirect <that-url>`. |
+| `invalid_target` | ChatGPT sends `resource=<the URL you configured>`. Memrain accepts `<issuer>` and `<issuer>/mcp` only; fix the app's URL or `MEMRAIN_PUBLIC_URL`. |
 | Callback carries `error=unauthorized_client` | The client lacks the `authorization_code` grant, or it is public (no secret) in `client` mode. Register it as above. |
 | Connect fails with `invalid_client` | Secret mistyped, or the client was revoked. |
-| Connect lands on the admin login | `MEMEX_OAUTH_REQUIRE_LOGIN=1` and a `client`-mode client. Use enrollment mode, or take the flag off. |
-| "That code was not accepted." | Used, expired, revoked or another client's code. `memex auth enrollments --client <client_id>`; issue a new one. |
+| Connect lands on the admin login | `MEMRAIN_OAUTH_REQUIRE_LOGIN=1` and a `client`-mode client. Use enrollment mode, or take the flag off. |
+| "That code was not accepted." | Used, expired, revoked or another client's code. `memrain auth enrollments --client <client_id>`; issue a new one. |
 | Tools fail with `401`, `Bearer error="invalid_token"` | The token was revoked or its refresh chain broke. Reconnect; for an enrolled member, issue `enroll --replaces <enrollment_id>`. |
 | A tool returns `insufficient_scope` | The client was registered read-only. The result's `_meta["mcp/www_authenticate"]` names the scope to ask for. |
-| `budget_exhausted` | The daily cap is spent: `memex auth set-budget <client_id|enrollment_id> <usd>`. |
+| `budget_exhausted` | The daily cap is spent: `memrain auth set-budget <client_id|enrollment_id> <usd>`. |

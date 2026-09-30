@@ -33,15 +33,19 @@ docker compose --env-file .env -f deploy/docker-compose.yml restart cloudflared
 ## Ingress
 
 The default deploy expects exactly one public hostname:
-`brain.<your-domain>` → `http://memex:18790` (MCP JSON-RPC at `/mcp`).
+`brain.<your-domain>` → `http://memrain:18790` (MCP JSON-RPC at `/mcp`).
 
 This rule is **dashboard-side**, not in this repo:
 
 1. Cloudflare → Zero Trust → Networks → Tunnels → `<your-tunnel>`.
 2. Configure → Public Hostnames → Add hostname.
-3. Hostname `brain.<your-domain>`, service `http://memex:18790`.
+3. Hostname `brain.<your-domain>`, service `http://memrain:18790`.
 4. No restart needed — cloudflared picks up dashboard changes within
    ~30 s.
+
+The service also answers to its pre-rename network alias `memex`, so a rule
+that still says `http://memex:18790` keeps working in 1.0.x. Point it at
+`memrain` before 1.1.0, which drops the alias.
 
 When you add an ingress to a NEW container, also expose its port on
 the `internal` Docker network in `docker-compose.yml` (`expose:`,
@@ -51,11 +55,11 @@ not `ports:`).
 
 | Symptom | Cause / fix |
 |---|---|
-| 502 / 530 from `https://brain.<your-domain>` | cloudflared is up but `memex` is down — check `docker compose ps memex` + hit `/health` |
-| `401` on `POST /mcp` | bearer mismatch — fetch the current bearer from `<secrets_prefix>/memex-public-bearer` and confirm your client carries `Authorization: Bearer <value>` |
+| 502 / 530 from `https://brain.<your-domain>` | cloudflared is up but `memrain` is down — check `docker compose ps memrain` + hit `/health` |
+| `401` on `POST /mcp` | bearer mismatch — fetch the current bearer from `<secrets_prefix>/memrain-public-bearer` and confirm your client carries `Authorization: Bearer <value>` |
 | Tunnel keeps retrying QUIC, never connects | SG TCP egress on 7844 missing — see `terraform/ec2.tf` |
 | `--token ""` log, won't register | env var name mismatch (must be `TUNNEL_TOKEN`, not `CLOUDFLARE_TUNNEL_TOKEN`) — `fetch-secrets.sh` writes both for safety |
-| `dial tcp: lookup memex on 127.0.0.11` | `memex` container exited; container DNS (Docker) doesn't see it. `docker compose up -d memex` |
+| `dial tcp: lookup memrain on 127.0.0.11` | `memrain` container exited; container DNS (Docker) doesn't see it. `docker compose up -d memrain` |
 
 ## Image bumps
 

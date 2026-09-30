@@ -278,14 +278,14 @@ For ALL skills used or touched during this work, check:
 1. **[skill-A] + [skill-B]** → [merged-skill] — [why]
 ```
 
-On approval: invoke `/skillify` (or `memex skillify`) for each new/modified skill.
+On approval: invoke `/skillify` (or `memrain skillify`) for each new/modified skill.
 
 ## Phase 6: CHECK RESOLVABLE — Verify everything routes
 
 After all filing and skillification:
 
 ```
-run_doctor                          # health surface (or: memex doctor)
+run_doctor                          # health surface (or: memrain doctor)
 search "<topic keywords>"           # brain pages findable
 find_orphans                        # any pages without inbound links?
 list_brain_skillpack                # skillpack consistency

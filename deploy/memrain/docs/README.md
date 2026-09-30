@@ -1,4 +1,4 @@
-# memex — Personal-Knowledge Brain
+# Memrain — Personal-Knowledge Brain
 
 Hybrid vector + keyword + entity-graph search over your markdown notes
 and code. Single contract: MCP JSON-RPC at `POST /mcp`. Any
@@ -30,7 +30,7 @@ tsvector. Embeddings: Bedrock Titan v2 (1024-dim).
   add_fact, add_timeline_event, jobs_{submit,list,get,cancel,logs},
   log_friction). `/mcp` accepts a personal access token, an OAuth access
   token or the public bearer; what a caller may do follows its scopes and
-  sources. In-stack callers send `MEMEX_INTERNAL_TOKEN`.
+  sources. In-stack callers send `MEMRAIN_INTERNAL_TOKEN`.
 - HTTP routes: `POST /mcp` (the agent contract), `GET /health`, the OAuth
   discovery documents under `/.well-known/`, the OAuth flow at
   `/authorize`, `/token`, `/register` and `/revoke`, `POST /ingest` for
@@ -48,7 +48,7 @@ tsvector. Embeddings: Bedrock Titan v2 (1024-dim).
   layered with `pages`, `links`, `entity_facts`, `timeline_events`,
   `hot_memory`, `jobs`, and `subagent_*` ledgers.
 - Per-credential source scoping (each remote client confined to its sources;
-  opt-in fail-closed via `MEMEX_TENANT_FAIL_CLOSED`). One brain can serve a
+  opt-in fail-closed via `MEMRAIN_TENANT_FAIL_CLOSED`). One brain can serve a
   team; see [docs/TEAM-SETUP.md](../../../docs/TEAM-SETUP.md).
 
 ## Quick CLI surface

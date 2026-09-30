@@ -70,7 +70,7 @@ Format: `- **YYYY-MM-DD** | Referenced in [page title](path) — brief context`
    - Connections — does this involve known people/companies?
    - Don't just summarize. Tell the user things they wouldn't have noticed.
 
-6. **Index.** Pages written via `page_put` are indexed by the server automatically; no separate sync step. After a large batch, `memex reindex` from the shell refreshes everything at once.
+6. **Index.** Pages written via `page_put` are indexed by the server automatically; no separate sync step. After a large batch, `memrain reindex` from the shell refreshes everything at once.
 
 ## Output Format
 

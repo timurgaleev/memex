@@ -7,7 +7,7 @@ description: |
   agent host's managed connectors for safe credential handling — the agent
   never holds raw API keys. Covers Gmail import, calendar sync, contacts
   seeding, X/Twitter archive, conversation imports, and file archives.
-  Use when a user has just finished memex setup and asks "now what?"
+  Use when a user has just finished Memrain setup and asks "now what?"
 triggers:
   - "cold start"
   - "fill my brain"
@@ -69,8 +69,8 @@ sources to get you from zero to useful in one session.
 
 ## Prerequisites
 
-- memex installed and reachable (`memex doctor` all green, or `run_doctor` over MCP)
-- Agent has MCP access to the brain, and shell access for `memex` CLI commands
+- Memrain installed and reachable (`memrain doctor` all green, or `run_doctor` over MCP)
+- Agent has MCP access to the brain, and shell access for `memrain` CLI commands
 
 ## The Priority Stack
 
@@ -165,18 +165,18 @@ done
 ```bash
 # Index the vault as the read-only 'memory' note source — wikilinks and
 # frontmatter come along; the brain stays DB-canonical.
-memex index /path/to/vault
+memrain index /path/to/vault
 
 # Verify
-memex status
-memex call search '{"q":"<topic from the imported data>"}'
+memrain status
+memrain call search '{"q":"<topic from the imported data>"}'
 ```
 
 ### Post-import
 
 - Link and timeline derivation run in the brain's background cycle; kick it
-  once to front-load: `memex cycle`
-- Start embeddings for anything not yet covered: `memex embed`
+  once to front-load: `memrain cycle`
+- Start embeddings for anything not yet covered: `memrain embed`
 
 > **Track progress:**
 > ```
@@ -382,8 +382,8 @@ After completing available phases:
 
 1. **Verify brain health:**
    ```bash
-   memex doctor
-   memex status
+   memrain doctor
+   memrain status
    ```
    (or `run_doctor` + `stats` + `sources_status` over MCP)
 
@@ -398,7 +398,7 @@ After completing available phases:
    - Calendar / email sweeps: host systemd timers driving the connector
      imports (daily, and every 4-8 hours respectively)
    - X: daily ingest
-   - Notes vault: periodic `memex index` re-run of the vault path — the
+   - Notes vault: periodic `memrain index` re-run of the vault path — the
      brain's background cycle handles derivation after each index
    - Watch `sources_status` to confirm each source stays fresh
 
@@ -477,5 +477,5 @@ Next: Phase N+1 — [description]. Ready to proceed?
 - `page_put` — create and update brain pages
 - `link` — cross-reference entities
 - `add_timeline_event` — record events on entity timelines
-- `index` (or `memex index`) — pull file-based sources into the brain; the
+- `index` (or `memrain index`) — pull file-based sources into the brain; the
   background cycle handles derivation after each phase

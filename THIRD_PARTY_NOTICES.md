@@ -1,6 +1,6 @@
 # Third-party notices
 
-memex includes or is derived from the third-party software listed below.
+Memrain includes or is derived from the third-party software listed below.
 Each entry reproduces the license and copyright notice that the software is
 distributed under.
 

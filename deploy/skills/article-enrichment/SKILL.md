@@ -75,14 +75,14 @@ original is never lost.
 ## Invocation
 
 The skill itself is markdown instructions to the agent. It does NOT ship a
-deterministic CLI command. The agent uses memex's existing operations:
+deterministic CLI command. The agent uses Memrain's existing operations:
 
 ```bash
 # 1. Find candidate pages
-memex call search '{"q":"needs_enrichment: true type:article","k":50}'
+memrain call search '{"q":"needs_enrichment: true type:article","k":50}'
 
 # 2. For each candidate, read the page
-memex call page_get '{"slug":"media/articles/<slug>"}'
+memrain call page_get '{"slug":"media/articles/<slug>"}'
 
 # 3. Enrich via the agent's own reasoning (synthesis-tier care for
 #    high-value pieces). The agent reads the raw content + brain context
@@ -97,7 +97,7 @@ memex call page_get '{"slug":"media/articles/<slug>"}'
 ```
 
 (From an MCP client, call the tools directly — `search`, `page_get`,
-`page_put`; the `memex call` form is for shell work.)
+`page_put`; the `memrain call` form is for shell work.)
 
 ## Quality bar
 
@@ -118,7 +118,7 @@ An enriched page passes if it has:
 | **Synthesis tier (Sonnet)** | High-value content, original-thinking pieces, longreads | Excellent — respects "verbatim" instruction |
 
 Rule: for bulk enrichment, do a utility-tier draft pass and spot-check 5
-with the LLM-judge brain-quality eval (`memex eval`). If quotes are
+with the LLM-judge brain-quality eval (`memrain eval`). If quotes are
 paraphrased, switch to the synthesis tier for that batch. When the agent
 itself is doing the restructuring, apply the same bar: verbatim quotes
 are non-negotiable.

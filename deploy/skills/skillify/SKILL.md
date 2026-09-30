@@ -31,8 +31,8 @@ mutating: true
 ## Contract
 
 A feature is "properly skilled" when all 11 checklist items pass. Item 3
-(second-model review) is informational — it does not gate `memex skillpack
-lint` or `memex skillify check`, but record whether it ran and what it found
+(second-model review) is informational — it does not gate `memrain skillpack
+lint` or `memrain skillify check`, but record whether it ran and what it found
 so the user knows where the gate stands.
 
 ## The Checklist
@@ -158,8 +158,8 @@ NOW that the review has proven quality, write tests that lock it in:
 
 ```bash
 bun test tests/<skill>.test.ts                   # unit tests
-memex skillify check <slug>                      # frontmatter contract
-memex skillpack lint                             # tools + commands the pack names exist
+memrain skillify check <slug>                    # frontmatter contract
+memrain skillpack lint                           # tools + commands the pack names exist
 ```
 
 ## Worked Example: Skillifying a "summarize-pr" Feature
@@ -193,11 +193,11 @@ NOT properly skilled until:
 Skillify produces two durable artifacts per skill:
 
 1. **The skill tree on disk.** `skills/<slug>/SKILL.md`, any deterministic
-   `scripts/<slug>.ts`, `routing-eval.jsonl`, and tests. `memex skillify
+   `scripts/<slug>.ts`, `routing-eval.jsonl`, and tests. `memrain skillify
    scaffold <prompt>` drafts a starting skill file; the human/agent refines it
    into the real implementation.
-2. **A verdict** from `memex skillify check <slug>` (the frontmatter contract)
-   and `memex skillpack lint` (every tool and command the skill names exists),
+2. **A verdict** from `memrain skillify check <slug>` (the frontmatter contract)
+   and `memrain skillpack lint` (every tool and command the skill names exists),
    plus the 11-item score `<passed>/<total>` reported to the user.
 
 ## Anti-Patterns

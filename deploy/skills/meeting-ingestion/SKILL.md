@@ -116,7 +116,7 @@ Acme Corp, the event goes on Alice's page, Bob's page, AND Acme Corp's page.
 
 No manual sync step: pages written via `page_put` are indexed on write,
 and the server's background cycle handles embeddings and maintenance. If
-you imported companion files outside the page API, run `memex reindex`
+you imported companion files outside the page API, run `memrain reindex`
 from the shell.
 
 ## Output Format

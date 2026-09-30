@@ -37,11 +37,11 @@ mutating: true
 
 ## Contract
 
-"Minions" here means durable background work. memex ships a Postgres-native
+"Minions" here means durable background work. Memrain ships a Postgres-native
 durable job queue for observable server-side work; agent-side reasoning
 fan-out uses the agent harness's own subagents (e.g. the Claude Code Task
 tool). This single skill handles both lanes:
-- Durable server jobs of a registered kind (`jobs_submit` / `memex jobs submit`)
+- Durable server jobs of a registered kind (`jobs_submit` / `memrain jobs submit`)
 - LLM subagent work (the agent's own subagent runtime)
 
 When to route to the durable queue: work that must survive restarts, be
@@ -65,7 +65,7 @@ submit a corrected one.
 | Condition | Action |
 |---|---|
 | User asks to run an arbitrary shell command in the background | Not a queue job — the queue runs registered kinds only; the operator runs it on the host |
-| User asks for reindex / embed backfill / maintenance sweep | The corresponding `memex` CLI command on the host (`memex reindex`, `memex embed`, `memex cycle`), or the doctor's remediation plan |
+| User asks for reindex / embed backfill / maintenance sweep | The corresponding `memrain` CLI command on the host (`memrain reindex`, `memrain embed`, `memrain cycle`), or the doctor's remediation plan |
 | User asks for research/reasoning/iterative agent work | Agent-side subagent (harness Task tool) |
 | User asks to cancel/retry running work | `jobs_cancel` / `retry_job` |
 | Single simple operation under ~30s | Consider inline execution first |
@@ -100,7 +100,7 @@ jobs_submit {"kind":"<registered kind>","payload":{...}}
 From the operator shell:
 
 ```
-memex jobs submit <kind> --payload '<json>'
+memrain jobs submit <kind> --payload '<json>'
 ```
 
 Pass an `idempotency_key` for recurring workloads so a repeat submit does not
@@ -118,7 +118,7 @@ jobs_logs   {"id":ID}
 ```
 
 Check structured result fields (exit status, log tails, attempts, timings)
-from `jobs_get`. Use `memex jobs stats` (CLI) for the queue counts,
+from `jobs_get`. Use `memrain jobs stats` (CLI) for the queue counts,
 and `retry_job` to re-run a failed job.
 
 ### Control (MCP-callable)
@@ -135,7 +135,7 @@ parameters, cancel and resubmit with corrected params.
 
 Use for open-ended reasoning, tool-using research, and fan-out synthesis.
 
-memex is a retrieval brain, not a chat agent — it does not run an LLM
+Memrain is a retrieval brain, not a chat agent — it does not run an LLM
 reasoning loop server-side. Subagent orchestration is the AGENT's job:
 spawn subagents with your harness's own runtime (e.g. the Claude Code
 Task tool), and give each one a self-contained brief. Each subagent
@@ -238,4 +238,4 @@ Server jobs alongside: #ID (reindex) — active
 - Retry a job — `retry_job` (MCP)
 - Get structured progress — `get_job_progress` (MCP)
 - Read job logs — `jobs_logs` (MCP)
-- Queue counts — `memex jobs stats` (CLI)
+- Queue counts — `memrain jobs stats` (CLI)

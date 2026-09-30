@@ -18,13 +18,13 @@ mutating: true
 
 # Migrate Skill
 
-Universal migration from any wiki, note tool, or brain system into memex.
+Universal migration from any wiki, note tool, or brain system into Memrain.
 
 ## Contract
 
 - Source data is never modified or deleted; migration is additive only.
 - Every migrated page is verified round-trip: written via `page_put`, read back via `page_get`, spot-checked.
-- Cross-references from the source system (wikilinks, block refs, tags) are converted to memex equivalents.
+- Cross-references from the source system (wikilinks, block refs, tags) are converted to Memrain equivalents.
 - Migration is tested on a sample (5-10 files) before bulk execution.
 - Post-migration health check confirms page count, link integrity, and embedding coverage.
 
@@ -32,7 +32,7 @@ Universal migration from any wiki, note tool, or brain system into memex.
 
 | Source | Format | Strategy |
 |--------|--------|----------|
-| Obsidian | Markdown + `[[wikilinks]]` | Direct import, convert wikilinks to memex links |
+| Obsidian | Markdown + `[[wikilinks]]` | Direct import, convert wikilinks to Memrain links |
 | Notion | Exported markdown or CSV | Parse Notion's export structure |
 | Logseq | Markdown with `((block refs))` | Convert block refs to page links |
 | Plain markdown | Any .md directory | Import directory page-by-page |
@@ -43,9 +43,9 @@ Universal migration from any wiki, note tool, or brain system into memex.
 ## Phases
 
 1. **Assess the source.** What format? How many files? What structure?
-2. **Plan the mapping.** How do source fields map to memex fields (type, title, tags, compiled truth, timeline)?
+2. **Plan the mapping.** How do source fields map to Memrain fields (type, title, tags, compiled truth, timeline)?
 3. **Test with a sample.** Import 5-10 files via `page_put`, verify by reading them back with `page_get`.
-4. **Bulk import.** Import the full set, one `page_put` per source file (from the shell, `memex call page_put '<json>'` scripts well for batches).
+4. **Bulk import.** Import the full set, one `page_put` per source file (from the shell, `memrain call page_put '<json>'` scripts well for batches).
 5. **Verify.** Check `stats` and `run_doctor`, spot-check pages.
 6. **Build links.** Extract cross-references from content and create typed links with `link`.
 
@@ -54,7 +54,7 @@ Universal migration from any wiki, note tool, or brain system into memex.
 1. Import the vault's markdown files as pages (Obsidian vaults are markdown
    directories) — preserve the relative path as the slug (`vault/<rel-path>`
    or a cleaner taxonomy prefix if the vault maps onto one).
-2. Wire the graph: memex canonicalizes slugs and resolves both
+2. Wire the graph: Memrain canonicalizes slugs and resolves both
    `[[relative/path]]` / `[[relative/path|Display Text]]` wikilinks and
    standard `[text](page.md)` markdown syntax during indexing, so most
    cross-references resolve as pages land. After the bulk import, sweep
@@ -65,8 +65,8 @@ Universal migration from any wiki, note tool, or brain system into memex.
    - `link` — create any typed links the derivation could not infer
 
 Obsidian-specific:
-- Tags (`#tag`) become memex tags (`add_tag`)
-- Frontmatter properties map to memex frontmatter (page typing is open — keep the source's types)
+- Tags (`#tag`) become Memrain tags (`add_tag`)
+- Frontmatter properties map to Memrain frontmatter (page typing is open — keep the source's types)
 - Attachments (images, PDFs) are noted but handled separately via `put_raw_data`
 
 ## Notion Migration
@@ -89,23 +89,23 @@ For tabular data (e.g., CRM exports, contact lists):
 
 After any migration:
 1. Check `stats` to verify page count matches source
-2. Check `run_doctor` for orphans and missing embeddings (or `memex doctor` from the shell)
+2. Check `run_doctor` for orphans and missing embeddings (or `memrain doctor` from the shell)
 3. Read pages back via `page_get` for round-trip verification
 4. Spot-check 5-10 pages
 5. Test search: `search` for "someone you know is in the data"
-6. If embedding coverage lags the import, run `memex embed` to backfill
+6. If embedding coverage lags the import, run `memrain embed` to backfill
 
 ## Anti-Patterns
 
 - **Bulk import without sample test.** Never import the full dataset before verifying with 5-10 files. The cost of cleaning up hundreds of bad pages is enormous.
 - **Destroying source data.** Migration is additive. Never modify, move, or delete the source files.
-- **Ignoring cross-references.** Wikilinks, block refs, and tags from the source system must be converted to memex equivalents. Dropping them loses the knowledge graph.
+- **Ignoring cross-references.** Wikilinks, block refs, and tags from the source system must be converted to Memrain equivalents. Dropping them loses the knowledge graph.
 - **Skipping verification.** A migration without post-import health check, page count comparison, and spot-check reads is incomplete.
 
 ## Output Format
 
 ```
-MIGRATION REPORT -- [source] -> memex
+MIGRATION REPORT -- [source] -> memrain
 =======================================
 
 Source: [format] ([file count] files, [size])

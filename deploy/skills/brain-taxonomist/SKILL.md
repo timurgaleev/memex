@@ -49,7 +49,7 @@ This skill guarantees:
 `brain-taxonomist` has NO hardcoded directory table. Every decision is
 driven by `ontology_get` (types and dimensions) plus the filing
 conventions in `_brain-filing-rules.md` (via `get_skill _brain-filing-rules`).
-memex page typing is OPEN — types are conventions carried in frontmatter
+Memrain page typing is OPEN — types are conventions carried in frontmatter
 and derived typed-links, not a mutable pack. This means:
 - The operator who extends the taxonomy does it by proposing a dimension
   (`ontology_propose`) and adopting the convention in the filing rules —
@@ -138,7 +138,7 @@ type is needed and let `ontology_propose` carry the proposal flow.
 find_orphans
 
 # What's the overall health?
-run_doctor        (or `memex doctor` from the shell)
+run_doctor        (or `memrain doctor` from the shell)
 
 # Any conflicting type conventions?
 ontology_conflicts

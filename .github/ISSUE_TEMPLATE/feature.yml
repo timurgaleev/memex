@@ -44,7 +44,7 @@ body:
       options:
         - label: terraform / AWS infrastructure
         - label: docker-compose / container build
-        - label: memex (knowledge brain)
+        - label: memrain (knowledge brain)
         - label: telegram-bridge (chat handler)
         - label: cloudflared (public ingress)
         - label: docs / onboarding

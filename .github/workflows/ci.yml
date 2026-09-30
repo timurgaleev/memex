@@ -86,7 +86,7 @@ jobs:
     # The gate. Production is arm64 (t4g.medium); that leg runs nightly in
     # bun-arm64.yml instead, because a free arm64 runner took 3-4x as long and
     # set the wall clock of every push without gating anything.
-    name: Memex Bun tests (amd64 ${{ matrix.group }}/3)
+    name: Memrain Bun tests (amd64 ${{ matrix.group }}/3)
     runs-on: ubuntu-latest
     # A group runs in ~5 min now that tests copy a pre-migrated database. A
     # tight cap makes a regression that hangs fail fast; the runner has no

@@ -181,7 +181,7 @@ Write everything to a single file every chapter subagent reads:
 CONTEXT="$WORK/context.md"
 {
   echo "## Identity (get_brain_identity + identity pages, if any)"
-  # memex call get_brain_identity '{}'; page_get personal/user-profile, etc.
+  # memrain call get_brain_identity '{}'; page_get personal/user-profile, etc.
   echo
   echo "## Recent reflections (last 14 days)"
   # chronicle_since + recent daily reflections — adapt to the user's filing scheme

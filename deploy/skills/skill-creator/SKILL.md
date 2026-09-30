@@ -2,7 +2,7 @@
 name: skill-creator
 version: 1.0.0
 description: |
-  Create new skills following the memex conformance standard. Generates SKILL.md
+  Create new skills following the Memrain conformance standard. Generates SKILL.md
   with frontmatter, Contract, Phases, Output Format, and Anti-Patterns. Checks
   MECE against existing skills. Updates manifest and resolver.
 triggers:
@@ -25,7 +25,7 @@ This skill guarantees:
 - MECE check: no overlap with existing skills' triggers
 - Frontmatter `triggers:` route the intended phrases
 - New skill shows up in `list_skills`
-- Skill passes the conformance checks (`memex skillify check <name>` and `memex skillpack lint`)
+- Skill passes the conformance checks (`memrain skillify check <name>` and `memrain skillpack lint`)
 
 ## Phases
 
@@ -71,7 +71,7 @@ mutating: {true|false}
    separate routing file to update.
 5. **Confirm discovery.** `list_skills` should return the new slug, and
    `get_skill {name}` should return the file you just wrote.
-6. **Verify.** Run `memex skillify check <name>` and `memex skillpack lint` to confirm the new skill passes conformance.
+6. **Verify.** Run `memrain skillify check <name>` and `memrain skillpack lint` to confirm the new skill passes conformance.
 
 ## Output Format
 

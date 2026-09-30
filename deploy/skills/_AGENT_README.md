@@ -1,6 +1,6 @@
-# Agent onboarding — what to do with the memex skill layer
+# Agent onboarding — what to do with the Memrain skill layer
 
-You (the agent) are connected to a memex brain over MCP. This file is the
+You (the agent) are connected to a Memrain brain over MCP. This file is the
 operating contract for the skill layer. Read it on every cold start. It is
 short on purpose.
 
@@ -69,8 +69,8 @@ If the skill has `mutating: true` frontmatter and declares `writes_pages:`
 before calling `page_put`.
 
 Every tool a skill names must be a real MCP tool on this brain (`search`,
-`page_put`, `jobs_submit`, ...) or a `memex <cmd>` shell command where a
-shell step is genuinely meant. `memex call <tool> <json>` invokes any MCP
+`page_put`, `jobs_submit`, ...) or a `memrain <cmd>` shell command where a
+shell step is genuinely meant. `memrain call <tool> <json>` invokes any MCP
 tool from the shell when you are working host-side.
 
 ## Updates — when the server ships a new version
@@ -83,7 +83,7 @@ On every cold start with a scaffolded copy, or any time the operator
 mentions an upgrade, run:
 
 ```bash
-memex skillpack
+memrain skillpack
 ```
 
 That sweeps every bundled skill and reports per-skill `identical / differs

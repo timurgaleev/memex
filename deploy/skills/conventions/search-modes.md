@@ -19,10 +19,10 @@ convention:
 - `brain-ops` / `query` / `signal-detector` skills: use the default knobs at
   search time. Per-call overrides win when set; server config is the default.
 - Skills that recommend tuning ("the cache hit rate is high — raise the
-  threshold?"): route operators to the `memex search modes` dashboard and
-  `memex eval` rather than rolling their own logic.
+  threshold?"): route operators to the `memrain search modes` dashboard and
+  `memrain eval` rather than rolling their own logic.
 - New skills that add per-call retrieval overrides: name them explicitly so
-  the resolved-knob attribution in `memex search modes` reads cleanly.
+  the resolved-knob attribution in `memrain search modes` reads cleanly.
 
 ## The knob set
 
@@ -50,7 +50,7 @@ Cache and intent weighting are constant server-side — they're free wins
 4. **`think`** — server-side synthesis (Sonnet tier) over retrieved
    context. Costs real money and seconds; use when the user asked a
    question that needs an answer composed FROM the brain, not a list of
-   hits. Budget-capped via the `MEMEX_THINK` knobs — degrade gracefully
+   hits. Budget-capped via the `MEMRAIN_THINK` knobs — degrade gracefully
    to raw hits when the budget says no.
 
 Rule of thumb: one step up the ladder per failed attempt, never two.
@@ -68,9 +68,9 @@ A thin `search` result usually needs a better query, not `think`.
 
 Agents tuning a brain's retrieval should use these directly:
 
-    memex search modes              # dashboard + per-knob source attribution (read-only)
-    memex eval                      # retrieval-quality gate over the eval set
-    memex status                    # config snapshot incl. search settings
+    memrain search modes            # dashboard + per-knob source attribution (read-only)
+    memrain eval                    # retrieval-quality gate over the eval set
+    memrain status                  # config snapshot incl. search settings
 
 Config mutation is operator-side. Recommend, don't apply.
 
@@ -89,10 +89,10 @@ jittering knobs call-to-call for no reason.
 
 If an operator or agent asks any of these, route to the tool shown:
 
-- "what search config is active?" → `memex search modes`
-- "is my cache hot?" → `memex status`
-- "tune my retrieval" → `memex eval`, then recommend changes to the operator
-- "did retrieval regress?" → `memex eval`
+- "what search config is active?" → `memrain search modes`
+- "is my cache hot?" → `memrain status`
+- "tune my retrieval" → `memrain eval`, then recommend changes to the operator
+- "did retrieval regress?" → `memrain eval`
 
 ## Don't
 
@@ -102,11 +102,11 @@ If an operator or agent asks any of these, route to the tool shown:
   approval. Mutation is a trust-boundary crossing; config stays
   operator-side.
 - Don't add per-call overrides on a production query path without naming
-  them, or the `memex search modes` attribution stops reading cleanly.
+  them, or the `memrain search modes` attribution stops reading cleanly.
 - Don't jump to `think` because `search` came back thin. Fix the query.
 
 ## See also
 
 - `conventions/salience-and-recency.md` — the ranking axes in depth
 - `conventions/brain-first.md` — the lookup order before ANY external call
-- `memex eval` — the retrieval-quality methodology gate
+- `memrain eval` — the retrieval-quality methodology gate

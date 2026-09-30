@@ -25,7 +25,7 @@ scope. Examples:
 - Secret leakage via committed files.
 - Bedrock IAM privilege escalation.
 - MCP bearer-token bypass on `brain.<domain>`.
-- Cross-tenant data exposure in the memex index.
+- Cross-tenant data exposure in the Memrain index.
 - Cloudflare Tunnel auth bypass.
 
 ## Out of scope
@@ -41,9 +41,9 @@ scope. Examples:
 - The audit gate (`make audit`) blocks pushes that contain
   maintainer-private identifiers.
 - The public MCP bearer can rotate daily, but the timer is opt-in —
-  install `deploy/systemd/memex-rotate-bearer.*` by hand (bootstrap does
+  install `deploy/systemd/memrain-rotate-bearer.*` by hand (bootstrap does
   not), otherwise the token is static.
-- `MEMEX_PUBLIC_WRITE` defaults to `0` — a fresh clone cannot accept
+- `MEMRAIN_PUBLIC_WRITE` defaults to `0` — a fresh clone cannot accept
   mutating MCP traffic without an explicit opt-in.
 
 ## Known accepted risks
@@ -53,10 +53,10 @@ way to break the assumed envelope.
 
 - A maintainer who deploys with default settings exposes a read-only
   MCP server at `brain.<domain>/mcp`. The bearer token gates access; the
-  optional daily rotation timer (`deploy/systemd/memex-rotate-bearer.*`,
+  optional daily rotation timer (`deploy/systemd/memrain-rotate-bearer.*`,
   installed by hand) bounds the blast radius of a leaked token. Without
   it the bearer is static until rotated manually.
 - Public read tools redact note bodies by default
-  (`MEMEX_PUBLIC_READ_BODIES=1` opts in); write tools are filtered from
+  (`MEMRAIN_PUBLIC_READ_BODIES=1` opts in); write tools are filtered from
   discovery and rejected from the public surface, and require
-  `MEMEX_INTERNAL_TOKEN` even on the internal path.
+  `MEMRAIN_INTERNAL_TOKEN` even on the internal path.

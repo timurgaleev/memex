@@ -1,21 +1,21 @@
-# How memex works
+# How Memrain works
 
 A plain-language tour of the whole system: what it is, how your knowledge gets
 in, how a question is answered, and — the question everyone asks — **where the
-money goes**. Every claim here is grounded in the code (`deploy/memex/src`) and
+money goes**. Every claim here is grounded in the code (`deploy/memrain/src`) and
 the other docs ([ARCHITECTURE.md](../ARCHITECTURE.md),
 [CONFIGURATION.md](./CONFIGURATION.md)).
 
 ## In one sentence
 
-memex is a **retrieval brain**, not a chatbot. It **finds the right things and
+Memrain is a **retrieval brain**, not a chatbot. It **finds the right things and
 proves them** (every hit comes with its source); the *answer* is written by your
-MCP client (Claude Code, etc.) from what memex returned. It remembers and finds;
+MCP client (Claude Code, etc.) from what Memrain returned. It remembers and finds;
 it does not talk.
 
 ## 1. How knowledge gets in
 
-You point memex at content — markdown notes, a code checkout, or anything pushed
+You point Memrain at content — markdown notes, a code checkout, or anything pushed
 over MCP (mail, calendar, arbitrary documents). For each document it:
 
 1. **Chunks** it into passages.
@@ -24,7 +24,7 @@ over MCP (mail, calendar, arbitrary documents). For each document it:
 3. Stores everything in **Postgres (RDS)** — the database is the single source of
    truth, not the files on disk.
 
-Conversations come in the same way. `memex transcripts ingest` reads ChatGPT and
+Conversations come in the same way. `memrain transcripts ingest` reads ChatGPT and
 Claude.ai exports, Codex CLI rollouts (`~/.codex/sessions`) and Claude Code
 session logs (`~/.claude/projects`), one file or a whole directory. It keeps
 only what was said: tool calls and results, reasoning, sub-agent traffic and
@@ -34,14 +34,14 @@ nothing.
 
 ## 2. How a question is answered (the pipeline)
 
-When your MCP client searches, memex runs a hybrid pipeline
+When your MCP client searches, Memrain runs a hybrid pipeline
 (`core/search/hybrid.ts`):
 
 1. **Classify intent** — a zero-LLM regex taxonomy works out what kind of
-   question it is (Claude Haiku only with `MEMEX_INTENT_LLM=1`).
+   question it is (Claude Haiku only with `MEMRAIN_INTENT_LLM=1`).
 2. **Retrieve in parallel** — embed the query and search by *meaning* (vector) +
    search by *words* (keyword), at the same time.
-3. **Expand the query** (opt-in, `MEMEX_QUERY_EXPANSION=1`) — Haiku adds
+3. **Expand the query** (opt-in, `MEMRAIN_QUERY_EXPANSION=1`) — Haiku adds
    synonyms / related terms for extra keyword passes.
 4. **Fuse** the result lists (Reciprocal Rank Fusion).
 5. **Hydrate** the top hits with their parent document + source type.
@@ -51,12 +51,12 @@ When your MCP client searches, memex runs a hybrid pipeline
 9. **Trim** to the top *k* and return them **with citations**.
 
 A default search makes one Titan embed call and no Claude call. Intent by
-LLM, query expansion and the Haiku rerank (`MEMEX_RERANK=1`) are opt-in; when
+LLM, query expansion and the Haiku rerank (`MEMRAIN_RERANK=1`) are opt-in; when
 on, they sharpen retrieval, they never write the answer.
 
 One optional shortcut sits in front of all of this: a **semantic query cache**
 (off by default). Ask the same thing a second time — or a close paraphrase — and
-memex recognizes the two queries *mean* the same (their fingerprints nearly
+Memrain recognizes the two queries *mean* the same (their fingerprints nearly
 match) and returns the cached result instead of paying for the whole pipeline
 again.
 
@@ -67,10 +67,10 @@ Three cost layers, from pennies to real money:
 | Layer | What it does | When it spends | Cost |
 |-------|--------------|----------------|------|
 | **Titan embeddings** | chunk fingerprints | on indexing + one query vector per search | pennies (~$0.026 / 1M tokens) |
-| **Claude Haiku** (utility) | query intent / expansion / rerank only when `MEMEX_INTENT_LLM` / `MEMEX_QUERY_EXPANSION` / `MEMEX_RERANK` are on (the Balanced and Max tiers written by `scripts/init.sh` turn `MEMEX_RERANK` on); nightly synthesis; contextual embedding wrapper | only when those flags are on | cheap (~$1–15/mo) |
+| **Claude Haiku** (utility) | query intent / expansion / rerank only when `MEMRAIN_INTENT_LLM` / `MEMRAIN_QUERY_EXPANSION` / `MEMRAIN_RERANK` are on (the Balanced and Max tiers written by `scripts/init.sh` turn `MEMRAIN_RERANK` on); nightly synthesis; contextual embedding wrapper | only when those flags are on | cheap (~$1–15/mo) |
 | **Claude Sonnet** (paid slices) | graph-aware rerank, relational reasoning, `think`, deep-synth, take grading | **only when a flag is set** | pay-per-call — the cost swing |
 
-The dominant variable cost is **`MEMEX_GRAPH_RERANK`** — a paid Sonnet call on
+The dominant variable cost is **`MEMRAIN_GRAPH_RERANK`** — a paid Sonnet call on
 *every* search, so it scales with how much you search. On top of that sits a
 fixed infrastructure floor: one small EC2 instance + one RDS Postgres +
 networking/secrets. See [CONFIGURATION.md](./CONFIGURATION.md#quality--cost-tiers-pick-one)
@@ -78,7 +78,7 @@ for the Free / Balanced / Max tiers and how to pick one.
 
 ## 4. Why run LLMs *inside* the brain at all?
 
-If the MCP client writes the answers, why does memex call models internally? Two
+If the MCP client writes the answers, why does Memrain call models internally? Two
 reasons — and neither is "chatting with the user":
 
 **A. Sharper retrieval, at query time.**
@@ -88,11 +88,11 @@ reasons — and neither is "chatting with the user":
   ("who founded X") when plain hybrid search underperforms.
 
 **B. A knowledge layer, built in the background.**
-- **Synthesis** (`MEMEX_DREAM_SYNTHESIS`, Haiku): on quiet-hours ticks the brain
+- **Synthesis** (`MEMRAIN_DREAM_SYNTHESIS`, Haiku): on quiet-hours ticks the brain
   distils your notes into concepts, opinions ("takes"), and a calibration profile
   — stored in a *separate* store; your original notes are never touched.
 - **Deep synthesis / take grading** (Sonnet): deepen and score those takes.
-- **Facts** — memex pulls concrete claims ("Acme's contract renews in March") out
+- **Facts** — Memrain pulls concrete claims ("Acme's contract renews in March") out
   of what you write, as you write it, and keeps them tidy: names are matched back
   to the right page instead of spawning duplicates, and a superseded claim is
   retired when a newer one lands. You can also *declare* facts yourself in a
@@ -109,7 +109,7 @@ reasons — and neither is "chatting with the user":
   didn't name one, and pulls in each one's **trajectory** — the log of how that
   thing changed over time — so the answer reflects the latest state, not a stale
   snapshot.
-- **Contextual embeddings** (`MEMEX_CONTEXTUAL_LLM`, Haiku): before fingerprinting
+- **Contextual embeddings** (`MEMRAIN_CONTEXTUAL_LLM`, Haiku): before fingerprinting
   a chunk, prepend a short blurb situating it in its document ("from the note about
   the Acme deal…") so an otherwise-ambiguous chunk is found more reliably.
 
@@ -145,7 +145,7 @@ authorises against that same client. See
 
 ## 6. The shape (and why)
 
-memex is deliberately small: **one Docker container on one EC2 instance**, an
+Memrain is deliberately small: **one Docker container on one EC2 instance**, an
 **RDS Postgres** for the index, an **EFS** mount for config that survives rebuilds,
 and **AWS Secrets Manager** for the tokens. The public surface is `POST /mcp`,
 `GET /health`, the OAuth discovery and flow endpoints, and `/admin` (behind
@@ -167,15 +167,15 @@ into raw input for another pass. No cron babysitting — the brain keeps itself
 current.
 
 And it can check its own work. An opt-in nightly **eval probe** (runs only
-after you install and enable `memex-eval-probe.timer` from `deploy/systemd`)
+after you install and enable `memrain-eval-probe.timer` from `deploy/systemd`)
 runs a fixed set of questions against the brain and records how good the
 retrieval was, so quality drift shows up as a trend you can read
-(`memex doctor`) rather than a surprise. It runs under a spend ceiling, so the
+(`memrain doctor`) rather than a surprise. It runs under a spend ceiling, so the
 self-check can't run up a bill.
 
 ## 8. The tools
 
-memex's MCP tools are declared in `deploy/memex/src/mcp/operations.ts`; the
+Memrain's MCP tools are declared in `deploy/memrain/src/mcp/operations.ts`; the
 table below groups all of them. Each carries MCP `annotations` derived from its
 scope: `readOnlyHint` on reads, and `destructiveHint` / `idempotentHint` on
 writes, so a client can ask before it changes anything. The static public
@@ -213,4 +213,4 @@ A few that are easy to miss:
 - `submit_agent` queues a read-only research agent that runs under your own
   grant, sources and daily budget, and `get_agent_job` returns its status and
   answer. Both need the `agent` scope, a daily budget on the client, and
-  `MEMEX_AGENT_ENABLED=1` plus `MEMEX_AGENT_TENANT_ENABLED=1` on the host.
+  `MEMRAIN_AGENT_ENABLED=1` plus `MEMRAIN_AGENT_TENANT_ENABLED=1` on the host.

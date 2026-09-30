@@ -134,7 +134,11 @@ write to:
 
 ## Takes attribution
 
-When writing a `<!--- memex:takes:begin -->` fence, the **holder** column says
+On a page with no fence write `<!--- memrain:takes:begin -->`. On a page that
+already has a `memex:` fence keep that marker exactly; never rewrite, rename or
+merge fence markers.
+
+When writing a takes fence, the **holder** column says
 WHO BELIEVES the claim, not who it's ABOUT. Cross-modal eval over a large
 production takes corpus scored attribution at 6.5/10 — holder/subject
 confusion was the #1 error. These six rules are the contract.

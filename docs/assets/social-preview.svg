@@ -17,9 +17,9 @@
 
   <g text-anchor="middle">
     <!-- wordmark -->
-    <text x="640" y="232" fill="#F2F6FC" font-weight="800" font-size="128" letter-spacing="1">memex</text>
+    <text x="640" y="232" fill="#F2F6FC" font-weight="800" font-size="128" letter-spacing="1">memrain</text>
     <!-- accent underline -->
-    <rect x="500" y="262" width="280" height="6" rx="3" fill="url(#accent)"/>
+    <rect x="420" y="262" width="440" height="6" rx="3" fill="url(#accent)"/>
 
     <!-- tagline -->
     <text x="640" y="340" fill="#E8EEF6" font-weight="600" font-size="40">Long-term memory for your AI agent</text>
