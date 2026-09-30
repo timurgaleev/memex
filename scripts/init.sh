@@ -183,7 +183,7 @@ prompt PROJECT_NAME      "Project name (AWS names, /opt/<name>)"  "memrain"     
 prompt DOMAIN            "Public root domain (e.g. example.com)"  ""             valid_domain
 prompt SUBDOMAIN         "Subdomain for the public MCP"           "brain"        valid_subdomain
 prompt GITHUB_OWNER      "GitHub username/org that owns the repo" ""             valid_github_owner
-prompt REPO_NAME         "Public repo name"                       "memex" valid_nonempty
+prompt REPO_NAME         "Public repo name"                       "memrain"      valid_nonempty
 prompt SECRETS_PREFIX    "AWS Secrets Manager prefix"             "memrain"      valid_nonempty
 prompt TFSTATE_BUCKET    "S3 bucket for terraform state"          ""             valid_nonempty
 prompt TFSTATE_REGION    "S3 region of the tfstate bucket"        "eu-central-1" valid_nonempty

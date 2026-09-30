@@ -189,7 +189,7 @@ if [ "$ec" -eq 0 ] \
    && grep -q '^SUBDOMAIN=brain$' "$t10/.env" \
    && grep -q '^SECRETS_PREFIX=memrain$' "$t10/.env" \
    && grep -q '^EFS_MOUNT=/mnt/memrain-efs/memrain$' "$t10/.env" \
-   && grep -q '^REPO_NAME=memex$' "$t10/.env" \
+   && grep -q '^REPO_NAME=memrain$' "$t10/.env" \
    && grep -q '^USE_SSH_DEPLOY_KEY=false$' "$t10/.env" \
    && grep -q 'key     = "memrain/terraform.tfstate"' "$t10/terraform/backend.hcl"; then
   pass "T10 defaults applied for empty answers"
