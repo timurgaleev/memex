@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-09-30
+
+### Fixed
+- `scripts/init.sh` offered `memex` as the default public repo name; a fresh
+  install now defaults to `memrain`, matching the repository.
+
+### Changed
+- The example secret names in `.env.example`, the gitleaks path rules and the
+  open items in `TODO.md` use the Memrain names. CLAUDE.md and AGENTS.md list
+  every legacy name the code still reads on purpose (response field, cookies,
+  lock ids, terraform outputs, the unset `SECRETS_PREFIX` default, skill
+  triggers).
+
 ## [1.0.0] — 2026-09-30
 
 ### Added
