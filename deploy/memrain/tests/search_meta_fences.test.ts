@@ -42,7 +42,7 @@ function payload(result: ToolCallResult): any {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-meta-fence-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-meta-fence-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), { id: SOURCE, kind: "vault", pathPrefix: "/meta-fence" });

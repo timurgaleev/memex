@@ -82,7 +82,7 @@ function oauthGrant(sourceId: string): AuthInfo {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-failclosed-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-failclosed-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const e = storage.engine();

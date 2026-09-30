@@ -21,7 +21,7 @@ describe("rescopeClient — bound_slug_prefixes", () => {
   let provider: OAuthProvider;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-rescope-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-rescope-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     provider = new OAuthProvider({ engine: storage.raw() });

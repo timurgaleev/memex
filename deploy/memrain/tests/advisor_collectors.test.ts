@@ -20,7 +20,7 @@ import {
 } from "../src/core/advisor/collectors.ts";
 import type { AdvisorContext } from "../src/core/advisor/types.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "memex-advisor-"));
+const dir = mkdtempSync(join(tmpdir(), "memrain-advisor-"));
 let storage: Storage;
 const NOW = new Date("2026-06-22T00:00:00.000Z");
 
@@ -108,9 +108,9 @@ describe("collectUsageShape", () => {
     const byId = new Map(out.map((f) => [f.id, f]));
     expect(byId.get("orphan_pages")?.title).toContain("1 page has");
     // Neither finding carries a fix_command any more. Every candidate measures
-    // a DIFFERENT set: `memex orphans` purges orphaned DB rows, `find_orphans`
-    // ignores outbound links and dead sources, `memex doctor` has no dead-link
-    // check, and `memex reconcile-links` compares wikilink entities against
+    // a DIFFERENT set: `memrain orphans` purges orphaned DB rows, `find_orphans`
+    // ignores outbound links and dead sources, `memrain doctor` has no dead-link
+    // check, and `memrain reconcile-links` compares wikilink entities against
     // documents. Naming any of them sends the operator somewhere that reports
     // success while the counted condition persists — which is the bug this
     // pair had twice. The exact condition is stated in `detail` instead.

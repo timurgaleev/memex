@@ -1,5 +1,5 @@
 /**
- * `memex auth doctor <base-url>` — the remote doctor, driven hermetically
+ * `memrain auth doctor <base-url>` — the remote doctor, driven hermetically
  * through an injectable fetch routed by URL path and JSON-RPC method.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -553,7 +553,7 @@ describe("runRemoteDoctor — scope probe against the real whoami contract", () 
   };
 
   beforeAll(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-doctor-contract-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-doctor-contract-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     server = startServer({
@@ -712,7 +712,7 @@ describe("redactSecrets", () => {
 });
 
 describe("readCredentialFile", () => {
-  const dir = mkdtempSync(join(tmpdir(), "memex-doctor-"));
+  const dir = mkdtempSync(join(tmpdir(), "memrain-doctor-"));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
   const write = (name: string, content: string, mode: number) => {

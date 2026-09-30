@@ -26,7 +26,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-cycle-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-cycle-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
@@ -263,7 +263,7 @@ describe("orphans-purge phase", () => {
     const e = storage.engine();
     // A missing file under an EXISTING root (the OS tmpdir's top-level dir,
     // e.g. /tmp or /var) must still be flagged — the positive path.
-    const missingLocal = `${tmpdir()}/memex-test-definitely-missing-${Date.now()}.md`;
+    const missingLocal = `${tmpdir()}/memrain-test-definitely-missing-${Date.now()}.md`;
     await e.exec(`
       INSERT INTO documents (id, source_path, title) VALUES
         ('remote1', '/nonexistent-root-xyz/notes/foo.md', 'R'),

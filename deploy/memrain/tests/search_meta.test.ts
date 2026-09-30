@@ -35,7 +35,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-search-meta-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-search-meta-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   for (const d of CORPUS) {

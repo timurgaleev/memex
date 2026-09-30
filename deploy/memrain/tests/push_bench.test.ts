@@ -46,7 +46,7 @@ let fixtures: PushFixture[];
 let run: CorpusRun;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-push-bench-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-push-bench-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   fixtures = loadCorpus();

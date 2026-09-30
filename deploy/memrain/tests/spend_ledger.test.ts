@@ -22,7 +22,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-spend-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-spend-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await storage.engine().query(

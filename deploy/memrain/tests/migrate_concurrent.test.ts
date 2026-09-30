@@ -1,5 +1,5 @@
 /**
- * `serve` and a `docker exec memex …` CLI both run migrations. Each read the
+ * `serve` and a `docker exec memrain …` CLI both run migrations. Each read the
  * applied set up front, so two of them racing both applied the same file and
  * the loser died on the duplicate `migrations` row — at boot. Two concurrent
  * runs must both succeed and apply each migration exactly once.
@@ -26,7 +26,7 @@ let tmp: string;
 let engine: PGliteEngine;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-migrate-race-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-migrate-race-"));
   engine = new PGliteEngine({ dbPath: join(tmp, "db") });
   await engine.ready();
 });

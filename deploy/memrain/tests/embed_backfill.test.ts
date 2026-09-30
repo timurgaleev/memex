@@ -1,5 +1,5 @@
 /**
- * Embedding backfill (`memex embed`) — re-embed non-code chunks missing a
+ * Embedding backfill (`memrain embed`) — re-embed non-code chunks missing a
  * vector, the operator remedy for partial vector-arm coverage.
  *
  * Seeds: a code document (frontmatter kind:code, no embedding — graph-only by
@@ -36,7 +36,7 @@ async function embeddingCount(): Promise<number> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-embed-backfill-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-embed-backfill-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 

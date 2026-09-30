@@ -33,7 +33,7 @@ describe("self-issued client_credentials on the MCP ingress", () => {
   let clientSecret: string;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-cc-ingress-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-cc-ingress-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     provider = new OAuthProvider({ engine: storage.raw() });

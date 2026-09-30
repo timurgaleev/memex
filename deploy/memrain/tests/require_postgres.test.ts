@@ -15,7 +15,7 @@ import { oauthSelfIssuedCheck } from "../src/commands/doctor.ts";
 import { Storage } from "../src/core/storage.ts";
 import type { Config } from "../src/core/config.ts";
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-requirepg-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-requirepg-"));
 const dbPath = join(tmp, "brain.pglite");
 
 function pgliteConfig(extra: Partial<Config> = {}): Config {

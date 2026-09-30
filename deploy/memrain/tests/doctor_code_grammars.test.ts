@@ -39,7 +39,7 @@ afterEach(() => {
  * it, byte for byte — the state the old check called healthy.
  */
 function selfConsistentBrokenDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "memex-doctor-grammar-"));
+  const dir = mkdtempSync(join(tmpdir(), "memrain-doctor-grammar-"));
   dirs.push(dir);
   const blob = Buffer.from("\0asm   not-a-grammar");
   writeFileSync(join(dir, WASM_FILES.bash), blob);

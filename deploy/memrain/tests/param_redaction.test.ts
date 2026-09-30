@@ -119,7 +119,7 @@ describe("logToolCall", () => {
 
 describe("logToolCall — audit file (MEMRAIN_AUDIT_DIR)", () => {
   it("appends a redacted record to the week file, independent of console logging", () => {
-    const dir = mkdtempSync(join(tmpdir(), "memex-pr-audit-"));
+    const dir = mkdtempSync(join(tmpdir(), "memrain-pr-audit-"));
     delete process.env["MEMRAIN_LOG_REQUESTS"]; // console off
     process.env["MEMRAIN_AUDIT_DIR"] = dir; // audit on
     try {

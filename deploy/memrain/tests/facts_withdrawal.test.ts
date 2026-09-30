@@ -22,7 +22,7 @@ let storage: Storage;
 beforeEach(async () => {
   delete process.env.MEMRAIN_FACTS_FENCE;
   delete process.env.MEMRAIN_FACTS_DEDUP;
-  tmp = mkdtempSync(join(tmpdir(), "memex-withdrawal-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-withdrawal-"));
   dbPath = join(tmp, "db");
   storage = new Storage({ dbPath });
   await storage.init();

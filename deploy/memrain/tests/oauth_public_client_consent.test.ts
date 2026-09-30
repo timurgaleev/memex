@@ -63,7 +63,7 @@ async function register(name: string, authMethod: string | undefined, mode: "cli
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-public-consent-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-public-consent-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), { id: "tina", kind: "other", pathPrefix: "tenant:tina" });

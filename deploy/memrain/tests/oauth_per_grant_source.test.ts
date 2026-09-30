@@ -40,7 +40,7 @@ async function codeFor(sourceId: string | null, federated?: string[] | null) {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-grant-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-grant-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const e = storage.engine();

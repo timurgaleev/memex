@@ -33,7 +33,7 @@ const body = (word: string) =>
 
 beforeEach(async () => {
   prevSync = process.env.MEMRAIN_PAGE_MIRROR_SYNC;
-  tmp = mkdtempSync(join(tmpdir(), "memex-mirror-job-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-mirror-job-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   _resetHandlersForTesting();

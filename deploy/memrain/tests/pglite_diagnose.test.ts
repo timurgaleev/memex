@@ -50,7 +50,7 @@ describe("inspectDataDir", () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-datadir-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-datadir-"));
   });
 
   afterEach(() => {
@@ -120,7 +120,7 @@ describe("PGLite's sentinel postmaster.pid", () => {
     // is "-42". Treating it as an owner pid made every healthy directory look
     // locked by a dead process — a false positive in the exact line an
     // operator reads while something is broken.
-    const dir = mkdtempSync(join(tmpdir(), "memex-sentinel-"));
+    const dir = mkdtempSync(join(tmpdir(), "memrain-sentinel-"));
     try {
       writeFileSync(join(dir, "postmaster.pid"), "-42\n/tmp/pglite/base\n5432\n");
       const r = inspectDataDir(dir);

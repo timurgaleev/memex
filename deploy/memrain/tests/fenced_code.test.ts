@@ -56,7 +56,7 @@ describe("indexDocument fenced-code chunks", () => {
   let storage: Storage;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-fenced-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-fenced-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });

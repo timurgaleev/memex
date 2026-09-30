@@ -25,7 +25,7 @@ let provider: OAuthProvider;
 let client: OAuthClientInfo;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-enroll-cap-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-enroll-cap-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   setSpendLedgerEngine(storage.engine());

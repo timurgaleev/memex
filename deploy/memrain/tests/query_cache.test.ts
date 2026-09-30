@@ -28,7 +28,7 @@ async function setClock(n: number): Promise<void> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-qcache-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-qcache-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

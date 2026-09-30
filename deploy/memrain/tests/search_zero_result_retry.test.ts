@@ -23,7 +23,7 @@ const nullVec = async (): Promise<number[]> => {
 const fakeExpander = async (): Promise<string[]> => ["automobile servicing"];
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-zero-retry-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-zero-retry-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const body = "automobile servicing schedule and maintenance log";

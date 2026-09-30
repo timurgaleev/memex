@@ -113,7 +113,7 @@ async function callable(ctx: McpRequestContext): Promise<string[]> {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-tools-visibility-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-tools-visibility-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const roomy = () => new RateLimiter({ capacity: 100_000, refillPerSecond: 1000 });

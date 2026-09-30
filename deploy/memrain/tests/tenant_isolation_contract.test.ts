@@ -41,7 +41,7 @@ async function call(
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-tenant-contract-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-tenant-contract-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await seedTenantContract(storage);

@@ -24,7 +24,7 @@ import {
 } from "../src/core/runtime-config.ts";
 import { putRuntimeConfigRow } from "./helpers/runtime-config-row.ts";
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-rc-write-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-rc-write-"));
 const cfgDir = join(tmp, ".memex");
 const cfgPath = join(cfgDir, "config.json");
 const dbPath = join(cfgDir, "brain.pglite");

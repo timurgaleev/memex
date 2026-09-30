@@ -33,7 +33,7 @@ let storage: Storage;
 let saved: { vault?: string; code?: string };
 
 beforeEach(async () => {
-  tmp = realpathSync(mkdtempSync(join(tmpdir(), "memex-reread-")));
+  tmp = realpathSync(mkdtempSync(join(tmpdir(), "memrain-reread-")));
   vault = join(tmp, "vault");
   mkdirSync(join(vault, "a"), { recursive: true });
   mkdirSync(join(vault, "b"), { recursive: true });
@@ -310,7 +310,7 @@ describe("operator index by path", () => {
   });
 });
 
-describe("memex index <path>", () => {
+describe("memrain index <path>", () => {
   /** Runs the CLI against this test's database; the CLI opens its own handle. */
   async function cliIndex(path: string): Promise<void> {
     const cfg = join(tmp, "config.json");

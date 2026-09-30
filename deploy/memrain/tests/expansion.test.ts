@@ -11,7 +11,7 @@ import {
 
 describe("sanitizeQueryForPrompt", () => {
   it("passes a clean query through unchanged", () => {
-    expect(sanitizeQueryForPrompt("memex master plan")).toBe("memex master plan");
+    expect(sanitizeQueryForPrompt("memrain master plan")).toBe("memrain master plan");
   });
 
   it("caps length at 500 chars", () => {

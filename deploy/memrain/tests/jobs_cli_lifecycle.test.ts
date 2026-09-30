@@ -1,5 +1,5 @@
 /**
- * `memex jobs submit|progress|remove|prune|smoke` — the CLI wiring over the
+ * `memrain jobs submit|progress|remove|prune|smoke` — the CLI wiring over the
  * core lifecycle surface (core/jobs/lifecycle.ts + Queue.prune/remove).
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runJobs } from "../src/commands/jobs.ts";
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-jobs-cli-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-jobs-cli-"));
 const cfgDir = join(tmp, ".memex");
 const cfgPath = join(cfgDir, "config.json");
 
@@ -51,7 +51,7 @@ async function run(opts: Parameters<typeof runJobs>[0]): Promise<Record<string, 
   return JSON.parse(cap.lines.join("\n")) as Record<string, unknown>;
 }
 
-describe("memex jobs lifecycle CLI", () => {
+describe("memrain jobs lifecycle CLI", () => {
   it("submit validates the kind and enqueues", async () => {
     await expect(
       run({ sub: "submit", kind: "Bad Kind!" }),

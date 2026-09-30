@@ -19,7 +19,7 @@ let storage: Storage;
 
 beforeEach(async () => {
   process.env.MEMRAIN_MEETING_TIMELINE = "1";
-  tmp = mkdtempSync(join(tmpdir(), "memex-mtgtl-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-mtgtl-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

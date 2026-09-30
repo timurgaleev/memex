@@ -1,5 +1,5 @@
 /**
- * Evidence + create_safety classification (memex arm-membership adaptation).
+ * Evidence + create_safety classification (memrain arm-membership adaptation).
  */
 import { describe, expect, it } from "bun:test";
 import {
@@ -101,7 +101,7 @@ describe("stampEvidence", () => {
   it("title-phrase match → exact_title_match at any rank", () => {
     const hits: Stampable[] = [
       { chunkId: "top" },
-      { chunkId: "t", title: "Memex master plan" }, // index 1, title hit
+      { chunkId: "t", title: "Memrain master plan" }, // index 1, title hit
     ];
     stampEvidence(hits, new Set(["top"]), new Set(["top"]), "master plan");
     expect(hits[1]).toMatchObject({ evidence: "exact_title_match", create_safety: "exists" });
@@ -127,10 +127,10 @@ describe("stampDefaultEvidence (cache-hit path)", () => {
 
   it("surfaces exact_title_match on a cached title hit (arm-blind but title-known)", () => {
     const hits: Stampable[] = [
-      { chunkId: "a", title: "Memex master plan" },
+      { chunkId: "a", title: "Memrain master plan" },
       { chunkId: "b", title: "Unrelated page" },
     ];
-    stampDefaultEvidence(hits, "memex master plan");
+    stampDefaultEvidence(hits, "memrain master plan");
     expect(hits[0]).toMatchObject({ evidence: "exact_title_match", create_safety: "exists" });
     expect(hits[1]).toMatchObject({ evidence: "weak_semantic", create_safety: "unknown" });
   });

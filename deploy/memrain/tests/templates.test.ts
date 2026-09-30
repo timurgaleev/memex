@@ -20,7 +20,7 @@ const EXPECTED = ["SOUL.md", "USER.md", "ACCESS_POLICY.md", "HEARTBEAT.md"];
 let tmp: string;
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-tpl-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-tpl-"));
 });
 
 afterEach(() => {

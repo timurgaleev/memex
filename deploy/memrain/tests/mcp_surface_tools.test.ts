@@ -68,7 +68,7 @@ async function seedGradedTake(docId: string, source: string, weight: number, key
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-surface-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-surface-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), { id: A, kind: "vault", pathPrefix: "/tenant-a" });
@@ -159,7 +159,7 @@ describe("list_skills / get_skill dispatch", () => {
   });
 
   it("getBrainSkill fetches a real skill body from a fixture dir", () => {
-    const dir = mkdtempSync(join(tmpdir(), "memex-skill-fx-"));
+    const dir = mkdtempSync(join(tmpdir(), "memrain-skill-fx-"));
     writeFileSync(
       join(dir, "demo.md"),
       "---\ntitle: demo\ndescription: A demo skill.\n---\n# demo\nbody text\n",

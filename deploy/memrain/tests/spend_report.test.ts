@@ -12,7 +12,7 @@ import { spendReport } from "../src/core/spend-report.ts";
 let tmp: string;
 let storage: Storage;
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-spend-report-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-spend-report-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

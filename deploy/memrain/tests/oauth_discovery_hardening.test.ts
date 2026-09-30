@@ -33,7 +33,7 @@ let url: string;
 
 beforeAll(async () => {
   process.env.MEMRAIN_HTTP_CORS_ORIGIN = "https://allowed.example";
-  tmp = mkdtempSync(join(tmpdir(), "memex-disc-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-disc-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   server = startServer({

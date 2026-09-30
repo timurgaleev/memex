@@ -19,7 +19,7 @@ let server: ServerHandle;
 let url: string;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-mcp-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-mcp-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   server = startServer({ host: "127.0.0.1", port: 0, storage });

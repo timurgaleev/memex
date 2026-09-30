@@ -28,7 +28,7 @@ async function newJob(): Promise<string> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-ledger-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-ledger-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

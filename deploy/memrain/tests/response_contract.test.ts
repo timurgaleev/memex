@@ -29,7 +29,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-respcontract-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-respcontract-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await putPage(storage, { slug: "people/alice", type: "person", markdown_body: "hi" });

@@ -208,7 +208,7 @@ describe("listFacts decay integration", () => {
   }
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-decay-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-decay-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     // old: high raw confidence but ~2 half-lives stale -> decays low.

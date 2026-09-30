@@ -82,7 +82,7 @@ async function replayAfter(
   change: "systematic" | "one-flip" | "none",
   unpromotedMiss = false,
 ) {
-  const tmp = mkdtempSync(join(tmpdir(), "memex-replay-ci-"));
+  const tmp = mkdtempSync(join(tmpdir(), "memrain-replay-ci-"));
   const storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   try {

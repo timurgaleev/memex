@@ -33,7 +33,7 @@ function stubClient(text: string) {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-fric-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-fric-"));
   skillsDir = join(tmp, "skills");
   mkdirSync(skillsDir, { recursive: true });
   storage = new Storage({ dbPath: join(tmp, "db") });

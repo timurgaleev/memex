@@ -26,7 +26,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-sweep-ignores-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-sweep-ignores-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

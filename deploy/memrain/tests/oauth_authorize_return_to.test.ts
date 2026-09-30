@@ -42,7 +42,7 @@ function internalAuthorizeUrl(): string {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-authz-return-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-authz-return-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   provider = new OAuthProvider({ engine: storage.raw() });

@@ -28,7 +28,7 @@ const link = (s: string, t: string, type: string) =>
 const slugs = (rows: { slug: string }[]) => rows.map((r) => r.slug).sort();
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-relrecall-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-relrecall-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 

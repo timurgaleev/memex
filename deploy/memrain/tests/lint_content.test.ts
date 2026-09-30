@@ -1,5 +1,5 @@
 /**
- * File-content lint (`memex lint <dir|file> [--fix]`) — the deterministic
+ * File-content lint (`memrain lint <dir|file> [--fix]`) — the deterministic
  * page-quality rules + auto-repair. Pure/fs only — no storage boot.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -83,7 +83,7 @@ describe("lintFiles (--fix / --dry-run)", () => {
   let dir: string;
 
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), "memex-lint-files-"));
+    dir = mkdtempSync(join(tmpdir(), "memrain-lint-files-"));
     mkdirSync(join(dir, "sub"));
     writeFileSync(join(dir, "good.md"), GOOD);
     writeFileSync(join(dir, "sub", "bad.md"), BAD);

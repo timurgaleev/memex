@@ -1,5 +1,5 @@
 /**
- * `memex think --save/--take` CLI wiring — the persistence hooks around
+ * `memrain think --save/--take` CLI wiring — the persistence hooks around
  * runThink. With MEMRAIN_THINK unset the run is skipped, so these pin the
  * wiring semantics without any paid call: --save on an empty synthesis
  * refuses to persist (warning surfaced), --take without an anchor errors.
@@ -12,7 +12,7 @@ import { runThinkCli } from "../src/commands/think.ts";
 import type { SonnetFn } from "../src/core/llm/sonnet.ts";
 import type { SearchHit } from "../src/core/search/hybrid.ts";
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-think-cli-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-think-cli-"));
 const cfgDir = join(tmp, ".memex");
 const cfgPath = join(cfgDir, "config.json");
 

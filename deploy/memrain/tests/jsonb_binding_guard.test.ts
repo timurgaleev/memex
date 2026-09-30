@@ -27,7 +27,7 @@ import { join, resolve } from "node:path";
 const SRC_ROOT = resolve(import.meta.dir, "../src");
 
 // executeRawDirect before executeRaw so the longer name wins; `query` covers
-// memex's engine.query / tx.query call sites. Optional `<...>` handles
+// Memrain's engine.query / tx.query call sites. Optional `<...>` handles
 // generic type args, e.g. `query<{ id: string }>(`.
 const CALL_RE = /\b(executeRawDirect|executeRaw|unsafe|query|exec)\s*(?:<[^>;]*>)?\s*\(/g;
 

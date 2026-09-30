@@ -2,7 +2,7 @@
  * Semantic (embedding-cosine) query-cache arm (migration 065). On an exact-match
  * miss the cache matches the nearest stored query embedding within the same
  * scope/knobs bucket, cosine >= threshold, TTL- and freshness-gated. The exact
- * arm and memex's stronger freshness model (generation clock + per-doc snapshot)
+ * arm and Memrain's stronger freshness model (generation clock + per-doc snapshot)
  * are unchanged — this only ADDS the semantic-hit path.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -58,7 +58,7 @@ async function seed(
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-semcache-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-semcache-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

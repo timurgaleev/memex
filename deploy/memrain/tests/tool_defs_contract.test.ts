@@ -27,7 +27,7 @@ describe("TOOL_DEFS generated from OPERATIONS", () => {
     expect(OPERATIONS.map((o) => o.name)).toEqual(snapshot.map((t) => t.name));
   });
 
-  it("no description claims a stdio transport memex does not have", () => {
+  it("no description claims a stdio transport memrain does not have", () => {
     const stale = TOOL_DEFS.filter((t) => t.description.includes("MCP-stdio"));
     expect(stale.map((t) => t.name)).toEqual([]);
   });

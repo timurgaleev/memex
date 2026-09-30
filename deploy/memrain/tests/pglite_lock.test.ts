@@ -33,7 +33,7 @@ let tmp: string;
 let dir: string;
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-lock-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-lock-"));
   dir = join(tmp, "db");
   mkdirSync(dir, { recursive: true });
 });

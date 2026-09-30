@@ -20,7 +20,7 @@ let storage: Storage;
 
 beforeEach(async () => {
   process.env.MEMRAIN_TIMELINE_ANCHOR = "1";
-  tmp = mkdtempSync(join(tmpdir(), "memex-tlanchor-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-tlanchor-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

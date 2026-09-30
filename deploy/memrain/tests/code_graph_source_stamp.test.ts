@@ -24,7 +24,7 @@ let storage: Storage;
 let documentId = "";
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-code-source-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-code-source-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), { id: "tenant-a", kind: "vault", pathPrefix: "/tenant-a" });

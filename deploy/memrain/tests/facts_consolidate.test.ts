@@ -46,7 +46,7 @@ async function seed(
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-consolidate-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-consolidate-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

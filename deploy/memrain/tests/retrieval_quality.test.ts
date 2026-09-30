@@ -61,7 +61,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-retr-quality-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-retr-quality-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   for (const d of CORPUS) {

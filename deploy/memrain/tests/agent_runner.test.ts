@@ -32,7 +32,7 @@ let storage: Storage;
 let queue: Queue;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-agent-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-agent-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   queue = new Queue(storage.engine());

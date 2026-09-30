@@ -59,7 +59,7 @@ async function mirrorDocId(
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-composite-pk-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-composite-pk-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   // A second tenant. documents.source_id / pages.source_id both FK -> sources.

@@ -23,7 +23,7 @@ let storage: Storage;
 let engine: Engine;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-synth-atoms-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-synth-atoms-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   engine = storage.engine();

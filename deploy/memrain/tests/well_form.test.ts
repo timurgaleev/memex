@@ -75,7 +75,7 @@ describe("frontmatter with a lone surrogate indexes cleanly (jsonb cast)", () =>
   let tmp: string;
   let storage: Storage;
   beforeAll(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-wellform-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-wellform-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });

@@ -49,7 +49,7 @@ beforeEach(async () => {
   // Queue the search mirror instead of embedding inline: these tests never
   // look at search, and it keeps page_put hermetic.
   process.env.MEMRAIN_PAGE_MIRROR_SYNC = "0";
-  tmp = mkdtempSync(join(tmpdir(), "memex-bodytl-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-bodytl-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

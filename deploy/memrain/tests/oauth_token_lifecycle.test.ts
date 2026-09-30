@@ -36,7 +36,7 @@ let provider: OAuthProvider;
 const sha = (v: string) => createHash("sha256").update(v, "utf8").digest("hex");
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-token-life-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-token-life-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   provider = new OAuthProvider({ engine: storage.raw() });

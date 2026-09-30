@@ -1,5 +1,5 @@
 /**
- * The Bedrock transport every memex client shares (`bedrockClientConfig`),
+ * The Bedrock transport every memrain client shares (`bedrockClientConfig`),
  * exercised against a local HTTP server instead of a fake function — the
  * retries and the timeout live in the SDK and its HTTP handler, so a seam above
  * them would test nothing.

@@ -32,7 +32,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-embed-deadline-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-embed-deadline-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   for (const d of CORPUS) {

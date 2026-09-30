@@ -23,7 +23,7 @@ const RUN = 1_000_000;
 let dir: string;
 
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), "memex-relinear-"));
+  dir = mkdtempSync(join(tmpdir(), "memrain-relinear-"));
 });
 
 afterAll(() => {
@@ -59,7 +59,7 @@ describe("skill frontmatter scan cost", () => {
   }
 
   it("still reads a description, block scalars and padded openers included", () => {
-    const d = mkdtempSync(join(tmpdir(), "memex-relinear-ok-"));
+    const d = mkdtempSync(join(tmpdir(), "memrain-relinear-ok-"));
     writeFileSync(join(d, "a.md"), "---   \ndescription: plain one\n---\nbody\n");
     writeFileSync(join(d, "b.md"), '---\ndescription: "quoted one"\n---\nbody\n');
     writeFileSync(join(d, "c.md"), "---\ndescription: |\n  folded one\n  and two\n---\nbody\n");

@@ -40,7 +40,7 @@ async function timelineCount(slug: string): Promise<number> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-merge-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-merge-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

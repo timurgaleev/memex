@@ -16,7 +16,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-linksrc-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-linksrc-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await putPage(storage, { slug: "people/alice", type: "person" });

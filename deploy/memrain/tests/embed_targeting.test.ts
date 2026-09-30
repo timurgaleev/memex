@@ -1,5 +1,5 @@
 /**
- * Embed targeting (`memex embed <slug> / --slugs / --all / --source`) —
+ * Embed targeting (`memrain embed <slug> / --slugs / --all / --source`) —
  * the scoped forceReembed path in core/embed-backfill.ts. Pins: slug scope
  * (raw path, page:// mirror, .md twin), source scope, whole-corpus --all,
  * dry-run accounting, and that out-of-scope embeddings survive untouched.
@@ -16,7 +16,7 @@ import { deterministicEmbed } from "./det-embed.ts";
 
 const detEmbed = (t: string) => Promise.resolve(deterministicEmbed(t));
 
-const dir = mkdtempSync(join(tmpdir(), "memex-embed-target-"));
+const dir = mkdtempSync(join(tmpdir(), "memrain-embed-target-"));
 let storage: Storage;
 
 async function vectorOf(chunkId: string): Promise<string | null> {

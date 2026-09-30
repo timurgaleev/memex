@@ -56,7 +56,7 @@ let forgottenFactId = 0;
 let supersededFactId = 0;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-stage2-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-stage2-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const engine = storage.engine();

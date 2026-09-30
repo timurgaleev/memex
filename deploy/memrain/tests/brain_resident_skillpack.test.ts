@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getBrainSkill, listBrainSkillpacks } from "../src/core/skillpack/brain-resident.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "memex-brainpack-"));
+const dir = mkdtempSync(join(tmpdir(), "memrain-brainpack-"));
 
 beforeAll(() => {
   writeFileSync(
@@ -54,7 +54,7 @@ describe("listBrainSkillpacks", () => {
 });
 
 describe("directory layout + shared docs", () => {
-  const dir2 = mkdtempSync(join(tmpdir(), "memex-brainpack2-"));
+  const dir2 = mkdtempSync(join(tmpdir(), "memrain-brainpack2-"));
   beforeAll(() => {
     mkdirSync(join(dir2, "brain-ops"));
     writeFileSync(

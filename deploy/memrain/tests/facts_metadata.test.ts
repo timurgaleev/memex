@@ -214,7 +214,7 @@ describe("reconcileFactsForPage — metadata projection", () => {
 
   beforeEach(async () => {
     delete process.env.MEMRAIN_FACTS_FENCE;
-    tmp = mkdtempSync(join(tmpdir(), "memex-factmeta-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-factmeta-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });

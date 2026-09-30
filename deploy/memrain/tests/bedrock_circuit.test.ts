@@ -46,7 +46,7 @@ let storage: Storage;
 /** Fresh store, ledger and circuit per test, for the describes that trip it. */
 function useStorage(): void {
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-circuit-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-circuit-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     setSpendLedgerEngine(storage.engine());

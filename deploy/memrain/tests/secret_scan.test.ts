@@ -23,7 +23,7 @@ let tmp: string;
 let storage: Storage;
 const saved = { d: process.env.MEMRAIN_SECRET_SCAN_DISPOSITION, a: process.env.MEMRAIN_SECRET_SCAN_ALLOW };
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-secret-scan-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-secret-scan-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

@@ -20,7 +20,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-mirrorlog-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-mirrorlog-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

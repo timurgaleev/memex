@@ -67,7 +67,7 @@ function auth(sourceId: string): AuthInfo {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-tenant-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-tenant-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const e = storage.engine();

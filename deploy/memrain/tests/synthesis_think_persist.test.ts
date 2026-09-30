@@ -29,7 +29,7 @@ let storage: Storage;
 let engine: Engine;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-think-persist-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-think-persist-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   engine = storage.engine();
@@ -136,15 +136,15 @@ describe("persistThinkSynthesis", () => {
 describe("saveThinkTake", () => {
   it("queues an idempotent take pinned to the anchor", async () => {
     const first = await saveThinkTake(engine, {
-      claim: "memex will outgrow its current scope",
-      anchorSlug: "projects/memex",
+      claim: "memrain will outgrow its current scope",
+      anchorSlug: "projects/memrain",
       weight: 0.8,
       domain: "product",
     });
     expect(first.inserted).toBe(true);
     const second = await saveThinkTake(engine, {
-      claim: "memex will outgrow its current scope",
-      anchorSlug: "projects/memex",
+      claim: "memrain will outgrow its current scope",
+      anchorSlug: "projects/memrain",
     });
     expect(second.inserted).toBe(false);
     expect(second.take_key).toBe(first.take_key);
@@ -153,7 +153,7 @@ describe("saveThinkTake", () => {
       [first.take_key],
     );
     expect(rows[0]?.status).toBe("queued");
-    expect(rows[0]?.source_ref).toBe("projects/memex");
+    expect(rows[0]?.source_ref).toBe("projects/memrain");
     expect(Number(rows[0]?.weight)).toBeCloseTo(0.8, 6);
   });
 });

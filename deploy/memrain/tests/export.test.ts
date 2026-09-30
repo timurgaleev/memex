@@ -1,5 +1,5 @@
 /**
- * `memex export` — dumps live pages to a markdown tree, scoped by --source.
+ * `memrain export` — dumps live pages to a markdown tree, scoped by --source.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
@@ -13,7 +13,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-export-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-export-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

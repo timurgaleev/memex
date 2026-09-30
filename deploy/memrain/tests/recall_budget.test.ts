@@ -172,7 +172,7 @@ describe("entity_recall token_budget", () => {
   let storage: Storage;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-recallbudget-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-recallbudget-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     await putPage(storage, {

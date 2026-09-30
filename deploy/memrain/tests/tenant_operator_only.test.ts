@@ -72,7 +72,7 @@ describe("F1/F2 — operator-only tools refuse a tenant token", () => {
   let tmp: string;
   let storage: Storage;
   beforeAll(async () => {
-    tmp = await mkdtemp(join(tmpdir(), "memex-oponly-"));
+    tmp = await mkdtemp(join(tmpdir(), "memrain-oponly-"));
     storage = new Storage({ dbPath: join(tmp, "db"), dataDir: tmp } as never);
     await storage.init();
   });

@@ -113,7 +113,7 @@ describe("autoFixDryViolations + submitRemediation (durable queue)", () => {
   };
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-remediation-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-remediation-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     queue = new Queue(storage.engine());

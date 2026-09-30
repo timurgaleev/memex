@@ -37,7 +37,7 @@ beforeEach(async () => {
   prevWrap = process.env.MEMRAIN_CONTEXTUAL_RETRIEVAL;
   delete process.env.MEMRAIN_CONTEXTUAL_LLM;
   delete process.env.MEMRAIN_CONTEXTUAL_RETRIEVAL;
-  tmp = mkdtempSync(join(tmpdir(), "memex-tier-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-tier-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
@@ -129,7 +129,7 @@ describe("a re-embed never lowers a chunk's tier", () => {
 
   it("records the downgrade when the embed backfill rebuilds an llm chunk", async () => {
     await indexDocument(storage, { sourcePath: SRC, text: doc([1, 2]) }, { embedFn, contextualLlmFn: situating });
-    // The backfill (a signature change, `memex embed --all`) can only rebuild
+    // The backfill (a signature change, `memrain embed --all`) can only rebuild
     // with the deterministic prefix; the tier must say so, or the next
     // contextual re-embed would "keep" a vector that already lost its LLM context.
     await storage.engine().query(

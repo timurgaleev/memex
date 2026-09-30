@@ -66,7 +66,7 @@ async function writeDoc(
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-ranking-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-ranking-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

@@ -2,7 +2,7 @@
  * Personal access tokens (auth create / revoke) on the live MCP ingress.
  *
  * Proves the access_tokens fallback path end to end: a PAT row minted the
- * way `memex auth create` does (name + sha256 hash + permissions) clears
+ * way `memrain auth create` does (name + sha256 hash + permissions) clears
  * the /mcp guard, its tenant scope resolves from `permissions.source_id`
  * (scalar = write+read source; array = federated read set anchored on its
  * first element), migration 072's default keeps takes_holders=['world'],
@@ -39,7 +39,7 @@ describe("personal access tokens (access_tokens fallback)", () => {
   let url: string;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-pat-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-pat-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     provider = new OAuthProvider({ engine: storage.raw() });

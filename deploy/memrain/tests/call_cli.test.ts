@@ -1,5 +1,5 @@
 /**
- * `memex call` — invoke an MCP tool from the shell. Runs against a fresh
+ * `memrain call` — invoke an MCP tool from the shell. Runs against a fresh
  * PGLite + a temp config (no Bedrock, no live brain). Exercises a read tool
  * (`stats`), argument validation, and the error exit code.
  */
@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCall } from "../src/commands/call.ts";
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-call-test-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-call-test-"));
 const cfgDir = join(tmp, ".memex");
 const cfgPath = join(cfgDir, "config.json");
 
@@ -40,7 +40,7 @@ function capture(): { lines: string[]; restore: () => void } {
   return { lines, restore: () => (console.log = orig) };
 }
 
-describe("memex call", () => {
+describe("memrain call", () => {
   it("invokes a read tool (stats) and prints its JSON result", async () => {
     const cap = capture();
     let code: number;

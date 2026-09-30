@@ -99,7 +99,7 @@ async function catalogCount(s: Storage): Promise<number> {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-engine-copy-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-engine-copy-"));
   src = await open("src");
   mid = await open("mid");
   end = await open("end");

@@ -15,7 +15,7 @@ import {
   clearCache,
 } from "../src/core/search/query-cache.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "memex-cache-cli-"));
+const dir = mkdtempSync(join(tmpdir(), "memrain-cache-cli-"));
 let storage: Storage;
 
 const FRESH = 5; // pretend the current document clock is 5

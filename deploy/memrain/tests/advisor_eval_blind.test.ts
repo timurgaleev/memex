@@ -17,7 +17,7 @@ import { recordQuery } from "../src/core/eval-replay.ts";
 import { runDoctor } from "../src/commands/doctor.ts";
 import type { AdvisorContext } from "../src/core/advisor/types.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "memex-eval-blind-"));
+const dir = mkdtempSync(join(tmpdir(), "memrain-eval-blind-"));
 let storage: Storage;
 
 function ctx(): AdvisorContext {
@@ -112,7 +112,7 @@ describe("collectEvalBlind", () => {
  * probe that measured nothing.
  */
 describe("doctor eval-trend on an empty eval set", () => {
-  const tmp = mkdtempSync(join(tmpdir(), "memex-eval-blind-doctor-"));
+  const tmp = mkdtempSync(join(tmpdir(), "memrain-eval-blind-doctor-"));
   const cfgDir = join(tmp, ".memex");
   const cfgPath = join(cfgDir, "config.json");
   const dbPath = join(cfgDir, "brain.pglite");

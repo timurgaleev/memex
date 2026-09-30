@@ -259,7 +259,7 @@ describe("validateParams — dispatch integration", () => {
   let tmp: string;
   let storage: Storage;
   beforeAll(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-vparams-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-vparams-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });

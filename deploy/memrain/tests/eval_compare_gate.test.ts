@@ -27,7 +27,7 @@ import {
   type EvalResultRecord,
 } from "../src/commands/eval-compare.ts";
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-eval-cmp-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-eval-cmp-"));
 const cfgDir = join(tmp, ".memex");
 const cfgPath = join(cfgDir, "config.json");
 const qrelsPath = join(tmp, "qrels.json");

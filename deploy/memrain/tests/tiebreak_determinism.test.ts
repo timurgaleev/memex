@@ -41,7 +41,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-tiebreak-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-tiebreak-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   for (const id of DOC_IDS) {

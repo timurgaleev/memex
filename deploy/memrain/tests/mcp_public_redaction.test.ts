@@ -141,7 +141,7 @@ beforeAll(async () => {
   }));
   ({ dispatchTool } = await import("../src/mcp/dispatch.ts"));
 
-  tmp = mkdtempSync(join(tmpdir(), "memex-mcp-public-redact-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-mcp-public-redact-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 

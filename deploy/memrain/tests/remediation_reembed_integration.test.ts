@@ -92,7 +92,7 @@ async function runReembedJob(sourceId: string) {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-remreembed-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-remreembed-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   queue = new Queue(storage.engine());

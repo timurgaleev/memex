@@ -17,7 +17,7 @@ import {
 } from "../src/core/migrate.ts";
 
 function tmpMigrationsDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "memex-mig-"));
+  const dir = mkdtempSync(join(tmpdir(), "memrain-mig-"));
   writeFileSync(join(dir, "001_test.sql"), "SELECT 1;");
   return dir;
 }

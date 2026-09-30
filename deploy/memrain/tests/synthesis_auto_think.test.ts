@@ -41,7 +41,7 @@ const fakePages = (content: string): ((q: string, k: number) => Promise<SearchHi
   ];
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-autothink-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-autothink-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

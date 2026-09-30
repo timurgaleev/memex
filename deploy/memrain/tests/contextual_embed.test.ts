@@ -139,7 +139,7 @@ describe("migration 057 — chunks.contextual_embedded marker", () => {
   let storage: Storage;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-ctxembed-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-ctxembed-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });

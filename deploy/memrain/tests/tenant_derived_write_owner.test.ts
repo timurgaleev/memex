@@ -38,7 +38,7 @@ async function linkSources(slug: string): Promise<string[]> {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-derived-owner-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-derived-owner-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), { id: OWNER, kind: "vault", pathPrefix: "/tenant-a" });

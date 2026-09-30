@@ -32,8 +32,8 @@ const body = (n: number) =>
   `re-embed has something to embed on every tick of the drain sweep.`;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-rechunk-sweep-"));
-  vault = mkdtempSync(join(tmpdir(), "memex-rechunk-vault-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-rechunk-sweep-"));
+  vault = mkdtempSync(join(tmpdir(), "memrain-rechunk-vault-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   // The sweep re-reads only files under the configured roots.

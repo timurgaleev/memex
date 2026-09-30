@@ -1,5 +1,5 @@
 /**
- * `memex bench` — the command wrapper around the three families.
+ * `memrain bench` — the command wrapper around the three families.
  *
  * MEASURES: that the CLI surface behaves the way an operator and a CI job need
  * it to, independent of what the numbers say. Four claims, each of which has a
@@ -51,7 +51,7 @@ let report: BenchReport;
 let spendDelta: { calls: number; usd: number };
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-bench-cli-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-bench-cli-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 
@@ -176,7 +176,7 @@ describe("the scoreboard covers every family", () => {
 
 // -- The command wrapper ---------------------------------------------------
 
-describe("memex bench", () => {
+describe("memrain bench", () => {
   it("prints the block and exits 0", async () => {
     const { code, out } = await captureStdout(() => runBenchCli({ family: "push" }));
     expect(code).toBe(0);

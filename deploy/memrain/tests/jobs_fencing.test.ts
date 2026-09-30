@@ -22,7 +22,7 @@ let storage: Storage;
 let queue: Queue;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-jobfence-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-jobfence-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   queue = new Queue(storage.engine());

@@ -53,7 +53,7 @@ async function report(cfg: string): Promise<{ parsed: Report; exitCode: number |
   return { parsed: JSON.parse(captured.join("\n")) as Report, exitCode };
 }
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-doctor-test-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-doctor-test-"));
 const cfgDir = join(tmp, ".memex");
 const dbPath = join(cfgDir, "brain.pglite");
 const cfgPath = join(cfgDir, "config.json");

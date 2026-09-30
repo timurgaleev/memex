@@ -60,7 +60,7 @@ async function linkRows(source_slug: string, target_slug: string, type: string) 
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-write-res-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-write-res-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const e = storage.engine();

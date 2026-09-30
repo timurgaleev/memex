@@ -78,7 +78,7 @@ async function pageRowCount(slug: string): Promise<number> {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-write-iso-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-write-iso-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const e = storage.engine();
@@ -355,7 +355,7 @@ describe("an unowned document is not free real estate", () => {
   const embedFn = (_t: string) => Promise.resolve(new Array(1024).fill(0.1));
 
   it("refuses a scoped caller that lands on a NULL-owned document", async () => {
-    const tmp2 = mkdtempSync(join(tmpdir(), "memex-unowned-"));
+    const tmp2 = mkdtempSync(join(tmpdir(), "memrain-unowned-"));
     const s2 = new Storage({ dbPath: join(tmp2, "db") });
     try {
       await s2.init();
@@ -406,7 +406,7 @@ describe("an empty grant reads nothing in the search arms", () => {
   const embedFn = (_t: string) => Promise.resolve(new Array(1024).fill(0.1));
 
   it("keyword arm: unscoped sees both, a grant sees one, an empty grant sees none", async () => {
-    const tmp3 = mkdtempSync(join(tmpdir(), "memex-empty-grant-"));
+    const tmp3 = mkdtempSync(join(tmpdir(), "memrain-empty-grant-"));
     const s3 = new Storage({ dbPath: join(tmp3, "db") });
     try {
       await s3.init();
@@ -445,7 +445,7 @@ describe("index `path` form is operator-only", () => {
   };
 
   beforeAll(() => {
-    root = mkdtempSync(join(tmpdir(), "memex-index-path-"));
+    root = mkdtempSync(join(tmpdir(), "memrain-index-path-"));
     writeFileSync(join(root, "server.md"), "a file on the daemon's disk");
     process.env.MEMRAIN_VAULT_PATHS = root;
     delete process.env.MEMRAIN_CODE_PATHS;

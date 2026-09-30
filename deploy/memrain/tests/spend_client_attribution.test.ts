@@ -68,7 +68,7 @@ async function reset(): Promise<void> {
 // that is never returned, so a per-test database exhausts the heap and the
 // hooks start timing out. State is reset between tests instead.
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-spend-client-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-spend-client-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await storage.engine().query(

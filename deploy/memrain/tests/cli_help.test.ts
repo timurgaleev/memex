@@ -1,9 +1,9 @@
 /**
- * `memex <cmd> --help` must reach the COMMAND's own manual.
+ * `memrain <cmd> --help` must reach the COMMAND's own manual.
  *
  * Two things stood between the operator and it: the generic `--help` branch in
  * main() answered for every command, and argument validation ran first — so
- * `memex watch --help` printed the one-line usage table, and the WATCH_HELP
+ * `memrain watch --help` printed the one-line usage table, and the WATCH_HELP
  * text (plus `eval chronicle`'s) was unreachable code. A half-typed command
  * line is exactly when the manual is wanted, so help must be answered before
  * the rest of the line is judged.

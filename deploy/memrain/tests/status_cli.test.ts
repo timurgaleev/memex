@@ -1,5 +1,5 @@
 /**
- * `memex status` — one-shot snapshot. Runs against a fresh PGLite + temp
+ * `memrain status` — one-shot snapshot. Runs against a fresh PGLite + temp
  * config; asserts the bundled stats/health/cache shape.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -10,7 +10,7 @@ import { runStatus } from "../src/commands/status.ts";
 import { VERSION } from "../src/version.ts";
 import packageJson from "../package.json" with { type: "json" };
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-status-test-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-status-test-"));
 const cfgDir = join(tmp, ".memex");
 const cfgPath = join(cfgDir, "config.json");
 
@@ -34,7 +34,7 @@ afterAll(() => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-describe("memex status", () => {
+describe("memrain status", () => {
   it("bundles stats + health + cache into one snapshot", async () => {
     const lines: string[] = [];
     const orig = console.log;

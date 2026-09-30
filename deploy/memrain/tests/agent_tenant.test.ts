@@ -48,7 +48,7 @@ const savedEnv: Record<string, string | undefined> = {};
 const FLAGS = ["MEMRAIN_AGENT_ENABLED", "MEMRAIN_AGENT_TENANT_ENABLED", "MEMRAIN_TENANT_FAIL_CLOSED"];
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-agent-tenant-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-agent-tenant-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await seedTenantContract(storage);

@@ -1,5 +1,5 @@
 /**
- * Contextual re-embed (`memex reindex --contextual`) — whole-corpus from-DB
+ * Contextual re-embed (`memrain reindex --contextual`) — whole-corpus from-DB
  * re-embed that applies the `<context>title\nsynopsis</context>` wrapper to
  * each embeddable chunk's embedding INPUT (canonical chunk text untouched).
  *
@@ -47,7 +47,7 @@ async function embeddingDim(chunkId: string): Promise<number | null> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-ctx-reembed-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-ctx-reembed-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   embedded = [];

@@ -183,7 +183,7 @@ describe("runtime_config cannot set a switch", () => {
         delete process.env[name];
       }
     }
-    dir = mkdtempSync(join(tmpdir(), "memex-quiescence-"));
+    dir = mkdtempSync(join(tmpdir(), "memrain-quiescence-"));
     storage = new Storage({ dbPath: dir });
     await storage.init();
   });

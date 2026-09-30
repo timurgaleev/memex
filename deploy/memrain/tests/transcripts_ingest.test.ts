@@ -67,7 +67,7 @@ let storage: Storage;
 const savedDisposition = process.env.MEMRAIN_SECRET_SCAN_DISPOSITION;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-transcripts-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-transcripts-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   for (const id of ["alpha", "other"]) {
@@ -274,8 +274,8 @@ describe("ingestSessions", () => {
   });
 });
 
-describe("memex transcripts ingest", () => {
-  const cliTmp = mkdtempSync(join(tmpdir(), "memex-transcripts-cli-"));
+describe("memrain transcripts ingest", () => {
+  const cliTmp = mkdtempSync(join(tmpdir(), "memrain-transcripts-cli-"));
   const cfgPath = join(cliTmp, ".memex", "config.json");
   const exportPath = join(cliTmp, "conversations.json");
   let log: ReturnType<typeof spyOn>;

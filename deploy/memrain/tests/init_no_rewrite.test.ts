@@ -62,7 +62,7 @@ async function initPostgres(): Promise<string> {
 }
 
 beforeEach(() => {
-  home = fs.mkdtempSync(join(tmpdir(), "memex-init-norewrite-"));
+  home = fs.mkdtempSync(join(tmpdir(), "memrain-init-norewrite-"));
   savedOverride = process.env.MEMRAIN_CONFIG_PATH;
   delete process.env.MEMRAIN_CONFIG_PATH;
 });

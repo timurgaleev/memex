@@ -22,7 +22,7 @@ const NEW = "rewritten chunk text about something else";
 const OTHER = "a second chunk that nobody touches";
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-stale-guard-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-stale-guard-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

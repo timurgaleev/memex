@@ -17,10 +17,10 @@
 
 .env.example|COMPAT-DOC|7|legacy env fallback note and legacy secret-name examples
 .gitleaks.toml|HISTORY|6|commit pins for fixtures that lived at the pre-rename package path
-AGENTS.md|COMPAT-DOC|5|compatibility paragraph: legacy names kept on purpose
+AGENTS.md|COMPAT-DOC|10|compatibility paragraph: legacy names kept on purpose
 ARCHITECTURE.md|COMPAT-DOC|1|the legacy compose network alias
 CHANGELOG.md|HISTORY|810|release history from before the rename (memex-v* sections)
-CLAUDE.md|COMPAT-DOC|6|compatibility paragraph and the memex-v* archive tags
+CLAUDE.md|COMPAT-DOC|11|compatibility paragraph and the memex-v* archive tags
 TODO.md|HISTORY|198|backlog items written before the rename
 UPGRADING.md|COMPAT-DOC|38|the upgrade guide for installs from before the rename
 deploy/cloudflared/docs/OPERATIONS.md|COMPAT-DOC|2|tunnel origins through the legacy network alias

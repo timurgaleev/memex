@@ -48,7 +48,7 @@ async function versionOf(slug: string): Promise<number> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-wreq-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-wreq-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), { id: A, kind: "vault", pathPrefix: "/wreq-a" });

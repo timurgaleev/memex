@@ -81,7 +81,7 @@ const listPage = (items: Array<{ number: number; updated_at: string }>, nextPage
 
 beforeEach(async () => {
   process.env.MEMRAIN_CONNECTOR_GAP_HEAL_MINUTES = "30";
-  tmp = mkdtempSync(join(tmpdir(), "memex-connectors-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-connectors-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), { id: "gh-acme", kind: "github", pathPrefix: "github/acme/widgets/" });
@@ -314,8 +314,8 @@ describe("targets", () => {
   });
 });
 
-describe("memex connectors", () => {
-  const cliTmp = mkdtempSync(join(tmpdir(), "memex-connectors-cli-"));
+describe("memrain connectors", () => {
+  const cliTmp = mkdtempSync(join(tmpdir(), "memrain-connectors-cli-"));
   const cfgPath = join(cliTmp, ".memex", "config.json");
   const tokenFile = join(cliTmp, "token");
   let log: ReturnType<typeof spyOn>;

@@ -31,7 +31,7 @@ const embedFn = async (text: string) => {
 };
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-empty-scope-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-empty-scope-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), { id: "b", kind: "vault", pathPrefix: "/tenant-b" });

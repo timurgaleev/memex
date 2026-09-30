@@ -67,7 +67,7 @@ let storage: Storage;
 const arms = new Map<string, { vector: string[]; keyword: string[] }>();
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-eval-mutation-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-eval-mutation-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   for (const d of CORPUS) {

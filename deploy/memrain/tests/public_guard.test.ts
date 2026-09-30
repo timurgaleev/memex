@@ -25,7 +25,7 @@ const INT_TOKEN = "internal-shared-token-abcdef";
 /** Fresh store + server per test, for the describes that go over HTTP. */
 function useServer(): void {
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-pubguard-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-pubguard-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     server = startServer({

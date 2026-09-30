@@ -19,7 +19,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-chunkerv-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-chunkerv-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
@@ -135,7 +135,7 @@ describe("sweepVault forceStaleChunker — orphan signal", () => {
     );
     await e.query("UPDATE documents SET chunker_version = chunker_version - 1 WHERE id = $1", ["doc_gone"]);
 
-    const emptyVault = mkVault(join(tmpdir(), "memex-emptyvault-"));
+    const emptyVault = mkVault(join(tmpdir(), "memrain-emptyvault-"));
     const res = await sweepVault(storage, { vault: emptyVault, forceStaleChunker: true });
     rmSync(emptyVault, { recursive: true, force: true });
 

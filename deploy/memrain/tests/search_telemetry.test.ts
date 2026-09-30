@@ -25,7 +25,7 @@ import { getRuntimeConfig, unsetRuntimeConfig } from "../src/core/runtime-config
 import { putRuntimeConfigRow } from "./helpers/runtime-config-row.ts";
 import type { StatsWindow } from "../src/core/search/telemetry.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "memex-telemetry-"));
+const dir = mkdtempSync(join(tmpdir(), "memrain-telemetry-"));
 let storage: Storage;
 
 beforeAll(async () => {

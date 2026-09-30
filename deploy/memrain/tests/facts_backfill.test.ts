@@ -46,7 +46,7 @@ function fakeSonnet(): SonnetFn {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-backfill-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-backfill-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

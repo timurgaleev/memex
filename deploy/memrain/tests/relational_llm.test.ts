@@ -42,7 +42,7 @@ function fakeSonnet(body: string): { fn: SonnetFn; state: { calls: number } } {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-relllm-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-relllm-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 

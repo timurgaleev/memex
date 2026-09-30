@@ -43,7 +43,7 @@ async function docGeneration(id: string): Promise<number | undefined> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-2lc-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-2lc-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   // Two independent docs. Each write bumps the global clock + that doc's gen.

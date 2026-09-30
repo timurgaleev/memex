@@ -33,7 +33,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-weighted-fts-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-weighted-fts-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 

@@ -19,7 +19,7 @@ import { WASM_FILES, _resetParsersForTests } from "../src/core/chunkers/parsers.
 const dirs: string[] = [];
 
 function brokenGrammarDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "memex-broken-grammar-"));
+  const dir = mkdtempSync(join(tmpdir(), "memrain-broken-grammar-"));
   writeFileSync(join(dir, WASM_FILES.bash), Buffer.from("\0asm   not-a-grammar"));
   dirs.push(dir);
   return dir;
@@ -36,7 +36,7 @@ test("a file whose grammar cannot link is still indexed, as text", async () => {
   process.env.MEMRAIN_WASM_DIR = brokenGrammarDir();
   _resetParsersForTests();
 
-  const dbDir = mkdtempSync(join(tmpdir(), "memex-fallback-db-"));
+  const dbDir = mkdtempSync(join(tmpdir(), "memrain-fallback-db-"));
   dirs.push(dbDir);
   const storage = new Storage({ dbPath: dbDir } as never);
   await storage.init();

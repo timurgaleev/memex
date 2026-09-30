@@ -27,7 +27,7 @@ let storage: Storage;
 let provider: OAuthProvider;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-token-compat-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-token-compat-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   provider = new OAuthProvider({ engine: storage.raw() });

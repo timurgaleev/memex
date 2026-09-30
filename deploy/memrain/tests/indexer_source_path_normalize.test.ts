@@ -1,7 +1,7 @@
 /**
  * indexFile canonicalizes source_path to an absolute path.
  *
- * `memex index foo.ts` used to persist the caller's relative path verbatim.
+ * `memrain index foo.ts` used to persist the caller's relative path verbatim.
  * source_path is the natural key AND the only thing the orphans disk-probe can
  * stat — and that probe checks absolute paths only (virtual `page://` / `gmail:`
  * rows have no file), so a relative-path doc whose file vanished stayed invisible
@@ -33,7 +33,7 @@ describe("indexFile source_path normalization", () => {
   let note: string;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-abspath-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-abspath-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     note = join(tmp, "note.md");
@@ -86,7 +86,7 @@ describe("indexFile source_path normalization", () => {
 });
 
 /**
- * The filed repro is `memex index foo.ts`, and commands/index.ts routes any
+ * The filed repro is `memrain index foo.ts`, and commands/index.ts routes any
  * recognised code extension to indexCodeFile — a different function with its
  * own copy of the same line. Fixing only the markdown path would have left the
  * reported case open while every markdown test went green, which is why this
@@ -98,7 +98,7 @@ describe("indexCodeFile source_path normalization", () => {
   let src: string;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-abspath-code-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-abspath-code-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     src = join(tmp, "mod.ts");

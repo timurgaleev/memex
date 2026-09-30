@@ -71,7 +71,7 @@ async function ledgerCents(s: Storage): Promise<number> {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-fidelity-bench-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-fidelity-bench-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   fixtures = loadFidelityCorpus();

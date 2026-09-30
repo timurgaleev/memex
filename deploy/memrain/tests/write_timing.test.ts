@@ -32,7 +32,7 @@ const embedFn = async (text: string) => deterministicEmbed(text);
 const contextualLlmFn = async () => ({ text: "situates the chunk", modelId: "fake" });
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-write-timing-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-write-timing-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

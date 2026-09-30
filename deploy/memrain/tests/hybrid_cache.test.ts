@@ -36,7 +36,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-hybcache-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-hybcache-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   // Two docs → chunks doc_a_c0, doc_b_c0. Each write bumps the clock.

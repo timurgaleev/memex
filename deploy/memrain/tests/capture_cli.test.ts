@@ -1,5 +1,5 @@
 /**
- * `memex capture` — quick-note capture: page write + search mirror in one
+ * `memrain capture` — quick-note capture: page write + search mirror in one
  * shot. Runs against a fresh PGLite via a temp config (the call_cli idiom);
  * the mirror uses the deterministic embed seam (no Bedrock).
  */
@@ -12,7 +12,7 @@ import { Storage } from "../src/core/storage.ts";
 import { getPage } from "../src/core/pages.ts";
 import { deterministicEmbed } from "./det-embed.ts";
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-capture-test-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-capture-test-"));
 const cfgDir = join(tmp, ".memex");
 const cfgPath = join(cfgDir, "config.json");
 

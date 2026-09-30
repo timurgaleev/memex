@@ -60,7 +60,7 @@ async function visibilityOf(fact: string): Promise<string | undefined> {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-fact-vis-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-fact-vis-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), {

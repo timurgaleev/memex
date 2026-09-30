@@ -1,6 +1,6 @@
 /**
  * Admin data + provisioning endpoints (increment A2). Each route 401s without
- * an admin session, then wraps memex's tenant provisioning + brain stats.
+ * an admin session, then wraps Memrain's tenant provisioning + brain stats.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -29,7 +29,7 @@ async function call(path: string, init?: RequestInit): Promise<Response | null> 
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-adminapi-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-adminapi-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   auth = createAdminAuth({ bootstrapToken: BOOT });

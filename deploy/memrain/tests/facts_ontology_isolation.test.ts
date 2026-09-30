@@ -59,7 +59,7 @@ const CONTRADICTS = JSON.stringify({
 });
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-ontology-iso-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-ontology-iso-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), {

@@ -45,7 +45,7 @@ describe("context_pack over the two-tenant brain", () => {
     packOf(await dispatchTool(storage, { name: "context_pack", arguments: args }, authInfo ? { authInfo } : {}));
 
   beforeAll(async () => {
-    ({ dir, storage } = tmpStorage("memex-context-pack-"));
+    ({ dir, storage } = tmpStorage("memrain-context-pack-"));
     await storage.init();
     await seedTenantContract(storage);
     await putPage(storage, { slug: "projects/quokka", type: "note", title: "Quokka Rollout", markdown_body: "QUOKKA_BODY" });
@@ -240,7 +240,7 @@ describe("context_pack budget", () => {
   const LONG = "x".repeat(280);
 
   beforeAll(async () => {
-    ({ dir, storage } = tmpStorage("memex-context-pack-budget-"));
+    ({ dir, storage } = tmpStorage("memrain-context-pack-budget-"));
     await storage.init();
     for (const [i, slug] of ENTITIES.entries()) {
       await putPage(storage, { slug, type: "person", title: `Entity ${i}`, markdown_body: "b" });

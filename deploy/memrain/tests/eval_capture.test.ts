@@ -35,7 +35,7 @@ let storage: Storage;
 /** Fresh store per test, for the describes that touch the database. */
 function useStorage(): void {
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-evalcap-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-evalcap-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });
@@ -178,7 +178,7 @@ describe("captureEvalCandidate", () => {
   it("never throws — returns { ok:false, reason } on failure", async () => {
     // Use a separate ephemeral storage so the afterEach close on the
     // shared one doesn't double-close.
-    const otherTmp = mkdtempSync(join(tmpdir(), "memex-evalcap-broken-"));
+    const otherTmp = mkdtempSync(join(tmpdir(), "memrain-evalcap-broken-"));
     const broken = new Storage({ dbPath: join(otherTmp, "db") });
     await broken.init();
     await broken.close();

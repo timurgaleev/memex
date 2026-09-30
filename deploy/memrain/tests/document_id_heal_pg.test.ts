@@ -28,7 +28,7 @@ describe.skipIf(!URL_)("document id fold on Postgres", () => {
     storage = new Storage(pg);
     await storage.init();
     await registerSource(pg, { id: "timur", kind: "other", pathPrefix: "tenant:timur" }).catch(() => {});
-    tmp = realpathSync(mkdtempSync(join(tmpdir(), "memex-id-heal-pg-")));
+    tmp = realpathSync(mkdtempSync(join(tmpdir(), "memrain-id-heal-pg-")));
     mkdirSync(join(tmp, "memory"), { recursive: true });
     savedVault = process.env.MEMRAIN_VAULT_PATHS;
     process.env.MEMRAIN_VAULT_PATHS = join(tmp, "memory");

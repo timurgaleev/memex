@@ -19,7 +19,7 @@ const call = (name: string, args: Record<string, unknown>): Promise<ToolCallResu
 const envelope = (r: ToolCallResult): any => JSON.parse(r.content[0]!.text);
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-unknown-args-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-unknown-args-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

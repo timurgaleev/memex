@@ -39,7 +39,7 @@ const ageDays = (slug: string, days: number) =>
     );
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-usage-insights-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-usage-insights-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
@@ -110,7 +110,7 @@ describe("findAnomalies — degree_outlier", () => {
 
   it("returns no degree outliers on a flat graph (stddev 0)", async () => {
     // Isolated DB so the global graph above doesn't bleed in.
-    const tmp2 = mkdtempSync(join(tmpdir(), "memex-flat-"));
+    const tmp2 = mkdtempSync(join(tmpdir(), "memrain-flat-"));
     const s2 = new Storage({ dbPath: join(tmp2, "db") });
     await s2.init();
     try {

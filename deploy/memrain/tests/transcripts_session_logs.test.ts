@@ -181,8 +181,8 @@ describe("secret redaction on session logs", () => {
   });
 });
 
-describe("memex transcripts ingest (session logs)", () => {
-  const cliTmp = mkdtempSync(join(tmpdir(), "memex-transcripts-logs-"));
+describe("memrain transcripts ingest (session logs)", () => {
+  const cliTmp = mkdtempSync(join(tmpdir(), "memrain-transcripts-logs-"));
   const cfgPath = join(cliTmp, ".memex", "config.json");
   const logsDir = join(cliTmp, "logs");
   let log: ReturnType<typeof spyOn>;

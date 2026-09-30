@@ -38,7 +38,7 @@ async function docIdForSlug(slug: string): Promise<string | null> {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-page-bridge-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-page-bridge-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

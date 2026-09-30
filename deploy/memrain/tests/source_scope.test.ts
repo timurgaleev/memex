@@ -58,7 +58,7 @@ describe("normalizeSourceFilterParam", () => {
 
 describe("registerSource", () => {
   it("refuses the no-grant sentinel as a source id", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "memex-sentinel-source-"));
+    const tmp = mkdtempSync(join(tmpdir(), "memrain-sentinel-source-"));
     const storage = new Storage({ dbPath: join(tmp, "db") });
     try {
       await storage.init();

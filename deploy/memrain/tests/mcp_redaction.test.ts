@@ -43,7 +43,7 @@ let storage: Storage;
 // against the same page, so a shared fixture is safe and keeps the suite off
 // the per-test PGLite cold-init path that flakes on the arm64 CI runner.
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-mcp-redact-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-mcp-redact-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await putPage(storage, {

@@ -28,7 +28,7 @@ let provider: OAuthProvider;
 const CLI: GrantMutationOptions = { actor: "ops", via: "cli" };
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-grant-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-grant-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   provider = new OAuthProvider({ engine: storage.raw() });

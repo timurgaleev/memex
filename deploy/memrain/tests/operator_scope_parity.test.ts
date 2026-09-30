@@ -116,7 +116,7 @@ async function record(): Promise<Recorded[]> {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-operator-parity-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-operator-parity-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   ({ factIdB } = await seedTenantContract(storage));

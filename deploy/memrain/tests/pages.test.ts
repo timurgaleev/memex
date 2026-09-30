@@ -31,7 +31,7 @@ let storage: Storage;
 /** Fresh store per test, for the describes that touch the database. */
 function useStorage(): void {
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-pages-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-pages-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });

@@ -96,7 +96,7 @@ function toolError(rpc: any): string | undefined {
 
 beforeEach(async () => {
   process.env.MEMRAIN_PUBLIC_WRITE = "1"; // prod posture: constructive writes on
-  tmp = mkdtempSync(join(tmpdir(), "memex-tok-destr-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-tok-destr-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   // A second source for the cross-source isolation test. `oauth_clients.source_id`

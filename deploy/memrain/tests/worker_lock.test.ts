@@ -21,7 +21,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-worker-lock-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-worker-lock-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

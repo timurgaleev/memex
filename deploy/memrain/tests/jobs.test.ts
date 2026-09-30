@@ -27,7 +27,7 @@ let queue: Queue;
 /** Fresh store + queue per test, for the describes that touch the database. */
 function useQueue(): void {
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-jobs-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-jobs-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     queue = new Queue(storage.engine());

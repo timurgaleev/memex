@@ -38,7 +38,7 @@ let storage: Storage;
 let engine: Engine;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-takes-phase-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-takes-phase-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   engine = storage.engine();

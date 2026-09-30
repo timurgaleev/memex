@@ -33,7 +33,7 @@ function writeConfig(dir: string, body: object = CONFIG): string {
 }
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), "memex-cfgpaths-"));
+  home = mkdtempSync(join(tmpdir(), "memrain-cfgpaths-"));
   savedOverride = process.env.MEMRAIN_CONFIG_PATH;
   delete process.env.MEMRAIN_CONFIG_PATH;
 });

@@ -26,7 +26,7 @@ function clearEnv(): void {
 
 beforeEach(async () => {
   clearEnv();
-  tmp = mkdtempSync(join(tmpdir(), "memex-gaz-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-gaz-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

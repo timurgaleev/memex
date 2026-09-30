@@ -72,7 +72,7 @@ function converseClient(
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-spend-attr-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-spend-attr-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   setSpendLedgerEngine(storage.engine());
@@ -311,10 +311,10 @@ describe("every invoke site carries a label", () => {
   });
 
   it("query expansion", async () => {
-    const out = await expandQuery("memex master plan", {
-      client: converseClient("the memex blueprint\nmemex roadmap"),
+    const out = await expandQuery("memrain master plan", {
+      client: converseClient("the memrain blueprint\nmemrain roadmap"),
     });
-    expect(out).toEqual(["the memex blueprint", "memex roadmap"]);
+    expect(out).toEqual(["the memrain blueprint", "memrain roadmap"]);
     const rows = await ledger();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.operation).toBe("query-expansion");
@@ -327,7 +327,7 @@ describe("every invoke site carries a label", () => {
         throw new Error("bedrock 503");
       }),
     } as unknown as BedrockRuntimeClient;
-    expect(await expandQuery("memex master plan", { client })).toEqual([]);
+    expect(await expandQuery("memrain master plan", { client })).toEqual([]);
     const rows = await ledger();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.operation).toBe("query-expansion");
@@ -338,7 +338,7 @@ describe("every invoke site carries a label", () => {
     process.env.MEMRAIN_INTENT_LLM = "1";
     try {
       // A query no cheap heuristic answers, so the paid arm actually runs.
-      const intent = await classifyIntent("memex master plan", {
+      const intent = await classifyIntent("memrain master plan", {
         client: converseClient("topic"),
       });
       expect(intent).toBe("topic");
@@ -355,7 +355,7 @@ describe("every invoke site carries a label", () => {
     const prev = process.env.MEMRAIN_INTENT_LLM;
     delete process.env.MEMRAIN_INTENT_LLM;
     try {
-      expect(await classifyIntent("memex master plan")).toBe("topic");
+      expect(await classifyIntent("memrain master plan")).toBe("topic");
     } finally {
       if (prev !== undefined) process.env.MEMRAIN_INTENT_LLM = prev;
     }

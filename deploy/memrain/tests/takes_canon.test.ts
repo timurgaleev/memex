@@ -33,7 +33,7 @@ let storage: Storage;
 let engine: Engine;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-takes-canon-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-takes-canon-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   engine = storage.engine();

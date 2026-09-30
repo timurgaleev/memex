@@ -54,7 +54,7 @@ async function seedTranscripts(n: number): Promise<string[]> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-reflections-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-reflections-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

@@ -29,7 +29,7 @@ let tmp: string;
 let dir: string;
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-duallock-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-duallock-"));
   dir = join(tmp, "db");
   mkdirSync(dir, { recursive: true });
 });

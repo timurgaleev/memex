@@ -125,10 +125,10 @@ def test_bootstrap_aws_profile_config():
     assert "credential_source = Ec2InstanceMetadata" in content, (
         "Must set credential_source = Ec2InstanceMetadata for IAM instance role"
     )
-    # 0644 (not 0600) — the file carries no secrets and the memex
+    # 0644 (not 0600) — the file carries no secrets and the memrain
     # container reads it as a non-root uid for IMDS-based Bedrock creds.
     assert "chmod 0644 /home/ec2-user/.aws/config" in content, (
-        "AWS config must be 0644 so the non-root memex container can read it"
+        "AWS config must be 0644 so the non-root memrain container can read it"
     )
 
 

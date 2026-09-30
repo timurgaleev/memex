@@ -26,11 +26,11 @@ operator plan and go per item.
 
 Every item inherits the ship gates in `CLAUDE.md` (`make audit`,
 `make scrub-audit` HIGH:0, `make typecheck`, `make lint-ts`, `make test`,
-pytest, `env -C deploy/memex bun run test:sharded`), a second-opinion review
-per batch plus the matching specialist reviewer, and every new `MEMEX_*` knob
+pytest, `env -C deploy/memrain bun run test:sharded`), a second-opinion review
+per batch plus the matching specialist reviewer, and every new `MEMRAIN_*` knob
 added to the `deploy/docker-compose.yml` allowlist. Every new MCP tool is
 classified in `FORBIDDEN_MCP_TOOLS_FROM_PUBLIC`, scoped, redacted, and
-regenerates `deploy/memex/tests/fixtures/tool_defs.snapshot.json`.
+regenerates `deploy/memrain/tests/fixtures/tool_defs.snapshot.json`.
 
 | Wave | Goal | Items (priority order) | Entry condition |
 |---|---|---|---|
@@ -57,7 +57,7 @@ Hard dependencies (item ← what it needs first):
 | RM-15 | RM-04, RM-08, RM-14 | RM-26 | RM-05, RM-08, RM-14 |
 | | | RM-27 | RM-06, RM-09, RM-13 |
 
-Paths below are relative to `deploy/memex/` unless they start with
+Paths below are relative to `deploy/memrain/` unless they start with
 `deploy/`, `docs/`, `scripts/` or `.github/`.
 
 ### RM-01 — Tenant isolation closure (reads, derived writes, code graph, deletion)
@@ -640,7 +640,7 @@ mirror last, because the mirror is where every blocker sits.
   `wait_for_index` added. Response: `search_pending` +
   `search_job_id` when queued; `search_indexed:false` keeps meaning "failed".
   `page_revert` / `page_restore` stay inline. Tenant mirror removed on delete.
-  - OPEN OPERATOR DECISION: flip `MEMEX_PAGE_MIRROR_SYNC=0` live. It is the one
+  - OPEN OPERATOR DECISION: flip `MEMRAIN_PAGE_MIRROR_SYNC=0` live. It is the one
     change that makes p95 independent of page size, but an agent that writes
     and then searches in the same turn will miss the page for a few seconds
     unless it passes `wait_for_index`. Decide after the 7-day p95 with
@@ -712,7 +712,7 @@ eval-probe hit rate/MRR not below baseline; a unit test proves a forced
 re-embed keeps an LLM-tier chunk's tier; a fault-injection test shows
 503/timeout retries then success without duplicate chunks.
 
-**Needs operator go.** The `MEMEX_CONTEXTUAL_LLM=0` live experiment.
+**Needs operator go.** The `MEMRAIN_CONTEXTUAL_LLM=0` live experiment.
 
 ### RM-03 — Database and process resilience on RDS
 
@@ -2404,7 +2404,7 @@ be installed or updated on a client without clobbering local edits, and the
   `src/cli-args.ts`, `src/commands/skillpack.ts`,
   `src/core/skillpack/brain-resident.ts`, `oauth-provider.ts`,
   `src/http/oauth-metadata.ts`, `scripts/mcp-refresh.sh`, new repo-root plugin
-  manifests, `docs/DEPLOYMENT.md`, `deploy/memex/docs/CLAUDE-CODE.md`.
+  manifests, `docs/DEPLOYMENT.md`, `deploy/memrain/docs/CLAUDE-CODE.md`.
 
 **Depends on.** RM-07, RM-09, RM-10.
 
@@ -3018,18 +3018,18 @@ Closed operator decisions this roadmap does not re-raise:
    FTS" below calls it high value, while an earlier worklog marked it skipped
    because pages are mirrored into chunks. Decide which record stands before
    RM-11 planning; RM-19 makes timeline text richer.
-9. **`MEMEX_OAUTH_REQUIRE_LOGIN` on prod.** Owner consent on authorization-code
-   connections is desirable, but with memex's single operator login the flag
+9. **`MEMRAIN_OAUTH_REQUIRE_LOGIN` on prod.** Owner consent on authorization-code
+   connections is desirable, but with Memrain's single operator login the flag
    blocks teammates on an enrollment connector (`docs/CONFIGURATION.md`).
-10. **`MEMEX_TENANT_FAIL_CLOSED=1` live.** Already set on the host at the
+10. **`MEMRAIN_TENANT_FAIL_CLOSED=1` live.** Already set on the host at the
     v1.129.0 deploy (RM-01 live check). Still open: the check with a real
     no-grant client (RM-01).
 11. **Revoke unused clients** `operator` and `cloud-app`; the admin bootstrap
     secret.
-12. **`MEMEX_CONTEXTUAL_LLM=0` experiment** against the eval-probe baseline
+12. **`MEMRAIN_CONTEXTUAL_LLM=0` experiment** against the eval-probe baseline
     (RM-02).
 13. **Also pending:** the 182-day takes grading bar; `synth_takes.holder`
-    default `world`; the `MEMEX_TOOL_PROFILE` starter set (RM-07); pilot Bedrock
+    default `world`; the `MEMRAIN_TOOL_PROFILE` starter set (RM-07); pilot Bedrock
     posture (no Guardrail, invocation logging off, Nova still allowed in
     `terraform/iam.tf`, `us-east-1` in allowed regions).
 
@@ -3273,8 +3273,8 @@ v1.124.0; these are the ones left open on purpose.
   while that is the stated deal, but `auth register-client --source`
   already supports the split — document the migration before a brain
   accumulates content that has to be re-attributed.
-- **The shipped systemd units hardcode `/opt/memex`** in both `ExecStart`
-  and the new `EnvironmentFile=`. With `project_name != memex` the `-`
+- **The shipped systemd units hardcode `/opt/memrain`** in both `ExecStart`
+  and the new `EnvironmentFile=`. With `project_name != memrain` the `-`
   prefix makes the env file silently absent — no region, no warning.
   Same class of bug as the hardcoded region they replaced; fixing it
   properly means templating the units at bootstrap rather than shipping
@@ -4108,13 +4108,13 @@ were intentionally removed; memex is a brain reached over MCP only._
 - Multi-arch CI matrix (amd64 + arm64) — currently arm64-only because
   the default `var.instance_type` is `t4g.medium`. Track in an issue;
   not a 1.0 blocker.
-- GHCR image publishing for the `memex` container — today the image is
+- GHCR image publishing for the `memrain` container — today the image is
   built on the EC2 host on every deploy. Issue first to agree on tag
   scheme + release cadence.
 - GitHub Pages docs site — `ARCHITECTURE.md` + `deploy/*/docs/` would
   render as a small Docusaurus / mkdocs site. Out of scope until
   there's a second deployer.
-- Standalone `memex` npm publish — split the brain out of the stack
+- Standalone `memrain` npm publish — split the brain out of the stack
   if demand for it standalone materializes.
 
 ---

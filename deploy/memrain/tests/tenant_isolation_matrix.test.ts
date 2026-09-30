@@ -109,7 +109,7 @@ async function seedMatrixExtras(): Promise<void> {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-isolation-matrix-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-isolation-matrix-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   ({ factIdA, factIdB } = await seedTenantContract(storage));

@@ -51,7 +51,7 @@ let storage: Storage;
 const E = "people/alice";
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-claim-inv-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-claim-inv-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

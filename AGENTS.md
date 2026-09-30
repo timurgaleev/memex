@@ -170,9 +170,14 @@ names on purpose: the `MEMEX_*` environment fallback, `memex:` fence markers in
 pages, `memex_` token and client id prefixes, the `x-memex-*` ingest headers,
 the legacy SQL functions (`memex_fact_claim_key` and friends), the
 `.memex-lock` PGLite lock, the `memex` command and the `memex` compose network
-alias. Existing installs and stored data depend on them. Do not remove or
-rename them outside an announced release (see UPGRADING.md and the
-CONFIGURATION.md "Legacy names" section).
+alias, the `memexResponseVersion` response field, the `memex_admin`,
+`memex_return_to` and `memex_approval` cookies and parameters, the `memex-cycle`
+and `memex:fact-withdraw` lock ids, the `memex_rds_*` and `memex_postgres_url`
+terraform outputs, the `memex` secret prefix used when `SECRETS_PREFIX` is
+unset, and the "set up memex" / "update memex" skill triggers. Existing
+installs and stored data depend on them. Do not remove or rename them outside
+an announced release (see UPGRADING.md and the CONFIGURATION.md "Legacy names"
+section).
 
 ## When you don't know what to do
 

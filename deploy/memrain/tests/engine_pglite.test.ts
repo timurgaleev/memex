@@ -15,7 +15,7 @@ let tmp: string;
 let engine: PGliteEngine;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-engine-pglite-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-engine-pglite-"));
   engine = new PGliteEngine({ dbPath: join(tmp, "db") });
   await engine.ready();
 });

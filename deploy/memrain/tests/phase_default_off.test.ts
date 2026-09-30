@@ -45,8 +45,8 @@ function clearEnv(): void {
 beforeAll(async () => {
   for (const k of ENV_KEYS) if (process.env[k] !== undefined) saved[k] = process.env[k];
   clearEnv();
-  tmp = mkdtempSync(join(tmpdir(), "memex-phase-off-"));
-  vault = mkdtempSync(join(tmpdir(), "memex-phase-off-vault-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-phase-off-"));
+  vault = mkdtempSync(join(tmpdir(), "memrain-phase-off-vault-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

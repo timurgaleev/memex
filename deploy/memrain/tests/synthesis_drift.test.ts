@@ -50,7 +50,7 @@ async function seedDriftedTake(claim: string, evidence: string): Promise<number>
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-drift-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-drift-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

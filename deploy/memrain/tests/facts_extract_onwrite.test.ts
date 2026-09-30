@@ -142,7 +142,7 @@ describe("extractFactsForPage", () => {
   let tmp: string;
   let storage: Storage;
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-onwrite-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-onwrite-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });

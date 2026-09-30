@@ -33,7 +33,7 @@ async function link(source: string, target: string): Promise<void> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-enrich-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-enrich-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

@@ -286,7 +286,7 @@ describe("extractToolCalls cost", () => {
   }, 60_000);
 });
 
-describe("memex skillpack lint (CLI)", () => {
+describe("memrain skillpack lint (CLI)", () => {
   function run(dir: string, json: boolean): { status: number | null; stdout: string } {
     const args = ["run", "src/cli.ts", "skillpack", "lint", "--dir", dir];
     if (json) args.push("--json");

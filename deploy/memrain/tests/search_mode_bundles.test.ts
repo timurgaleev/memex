@@ -39,7 +39,7 @@ const clearAll = () => {
 };
 
 describe("mode bundles", () => {
-  it("defaults to conservative — memex's historical all-OFF posture", () => {
+  it("defaults to conservative — Memrain's historical all-OFF posture", () => {
     clearAll();
     expect(DEFAULT_SEARCH_MODE).toBe("conservative");
     expect(resolveSearchMode()).toBe("conservative");

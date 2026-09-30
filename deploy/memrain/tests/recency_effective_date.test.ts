@@ -22,7 +22,7 @@ let storage: Storage;
 const BODY = "quarterly revenue report growth margin forecast";
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-recency-eff-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-recency-eff-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   for (const id of ["daily/old-content", "daily/new-content"]) {

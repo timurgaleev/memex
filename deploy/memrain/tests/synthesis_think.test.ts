@@ -36,7 +36,7 @@ let engine: Engine;
 /** Fresh store per test, for the describes that touch the database. */
 function useStorage(): void {
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-think-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-think-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     engine = storage.engine();

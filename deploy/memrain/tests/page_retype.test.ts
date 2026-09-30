@@ -19,7 +19,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-retype-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-retype-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

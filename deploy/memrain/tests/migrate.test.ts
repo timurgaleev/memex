@@ -59,7 +59,7 @@ function recordingEngine(inner: Engine): { engine: Engine; execLog: string[] } {
 let tmp: string;
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-migrate-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-migrate-"));
 });
 
 afterEach(() => {

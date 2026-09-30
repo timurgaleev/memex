@@ -1,5 +1,5 @@
 /**
- * Ingest-time frontmatter inference (a per-file pure step, in memex's indexer
+ * Ingest-time frontmatter inference (a per-file pure step, in Memrain's indexer
  * instead of a recurring cycle phase). Verify skip-on-existing,
  * title/date derivation, the prepend, and that indexDocument carries it.
  */
@@ -49,7 +49,7 @@ describe("indexDocument carries inferred frontmatter", () => {
   let tmp: string;
   let storage: Storage;
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-fminfer-ingest-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-fminfer-ingest-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });

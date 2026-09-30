@@ -16,7 +16,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-lastret-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-lastret-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   delete process.env.MEMRAIN_TRACK_RETRIEVAL;

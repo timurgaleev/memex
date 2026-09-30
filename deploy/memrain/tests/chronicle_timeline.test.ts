@@ -23,7 +23,7 @@ let storage: Storage;
 const SCOPE = { sourceIds: ["default"] };
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-chron-tl-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-chron-tl-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

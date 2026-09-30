@@ -59,7 +59,7 @@ let factId: number;
 let retiredId: number;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-empty-scope-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-empty-scope-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const e = storage.engine();

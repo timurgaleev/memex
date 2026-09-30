@@ -41,7 +41,7 @@ async function embeddingCount(): Promise<number> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-embed-sig-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-embed-sig-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

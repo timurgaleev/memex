@@ -68,7 +68,7 @@ async function visibleChunks(sourcePath: string): Promise<number> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-reconcile-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-reconcile-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });
@@ -132,7 +132,7 @@ describe("reindex deletion-reconcile", () => {
 
     // … and a doc from a DIFFERENT source root whose file is also gone. A
     // partial/other-root sweep must never read that as "delete me".
-    const otherRoot = mkdtempSync(join(tmpdir(), "memex-other-"));
+    const otherRoot = mkdtempSync(join(tmpdir(), "memrain-other-"));
     const otherDoc = join(otherRoot, "gone.md"); // never created on disk
     await seedDoc(otherDoc, "gone");
 

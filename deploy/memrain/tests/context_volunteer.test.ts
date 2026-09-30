@@ -32,7 +32,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-volunteer-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-volunteer-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   _resetPendingVolunteerEventWritesForTests();

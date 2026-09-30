@@ -1,5 +1,5 @@
 /**
- * `memex search diagnose` — arm-by-arm retrieval probe. Hermetic: seeded
+ * `memrain search diagnose` — arm-by-arm retrieval probe. Hermetic: seeded
  * corpus + deterministic embedder; asserts the per-layer ranks and the
  * verdict line for a hit and for a miss.
  */
@@ -12,7 +12,7 @@ import { Storage } from "../src/core/storage.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
 import { deterministicEmbed, deterministicEmbedQuery } from "./det-embed.ts";
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-diagnose-test-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-diagnose-test-"));
 const cfgDir = join(tmp, ".memex");
 const cfgPath = join(cfgDir, "config.json");
 

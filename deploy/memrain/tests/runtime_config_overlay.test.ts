@@ -20,7 +20,7 @@ import {
 } from "../src/core/runtime-config.ts";
 import { putRuntimeConfigRow } from "./helpers/runtime-config-row.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "memex-rc-overlay-"));
+const dir = mkdtempSync(join(tmpdir(), "memrain-rc-overlay-"));
 let storage: Storage;
 const SUFFIXES = ["RCO_A", "RCO_B", "RCO_C", "RCO_D", "RCO_E", "RCO_F", "RCO_G", "MAINTENANCE"];
 

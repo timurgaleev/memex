@@ -76,7 +76,7 @@ async function boot(env: Record<string, string>, deps: ReturnType<typeof spies>)
 
 beforeAll(async () => {
   for (const k of ENV_KEYS) saved.set(k, process.env[k]);
-  dir = mkdtempSync(join(tmpdir(), "memex-serve-quiescence-"));
+  dir = mkdtempSync(join(tmpdir(), "memrain-serve-quiescence-"));
   process.env.MEMRAIN_CODE_PATHS = dir;
   process.env.MEMRAIN_DREAM_INTERVAL_S = "60";
   storage = new Storage({ dbPath: join(dir, "db") });

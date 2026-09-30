@@ -77,7 +77,7 @@ async function codeCount(): Promise<number> {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-enroll-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-enroll-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const e = storage.engine();

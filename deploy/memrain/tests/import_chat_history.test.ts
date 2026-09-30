@@ -96,7 +96,7 @@ describe("convertChatExport", () => {
 describe("CLI", () => {
   let tmp: string;
   beforeAll(() => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-chat-import-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-chat-import-"));
     writeFileSync(join(tmp, "export.json"), JSON.stringify(FIXTURE));
   });
   afterAll(() => {

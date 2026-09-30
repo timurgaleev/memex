@@ -137,7 +137,7 @@ describe("indexDocument content-sanity wiring", () => {
   let storage: Storage;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-sanity-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-sanity-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });
@@ -300,7 +300,7 @@ describe("indexDocument content-sanity wiring", () => {
 
 describe("resolveOperatorLiterals", () => {
   it("parses one literal per line, skipping blanks and # comments", () => {
-    const dir = mkdtempSync(join(tmpdir(), "memex-oplit-"));
+    const dir = mkdtempSync(join(tmpdir(), "memrain-oplit-"));
     const f = join(dir, "list.txt");
     writeFileSync(f, "# header comment\n\nFirst Junk String\n  Second Junk  \n# trailing comment\n");
     try {

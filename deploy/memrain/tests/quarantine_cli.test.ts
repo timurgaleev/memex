@@ -1,5 +1,5 @@
 /**
- * `memex quarantine list|clear|scan` — operator surface over the
+ * `memrain quarantine list|clear|scan` — operator surface over the
  * content-sanity markers. Seeds a clean doc + a scraper-junk doc that
  * predates the gate, then: scan dry-run counts it, scan --apply stamps it
  * (and drops its embeddings), list shows it, clear refuses while still junk,
@@ -14,7 +14,7 @@ import { Storage } from "../src/core/storage.ts";
 import { writeDocumentTransaction } from "../src/core/indexer-tx.ts";
 import { deterministicEmbed } from "./det-embed.ts";
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-quarantine-test-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-quarantine-test-"));
 const cfgDir = join(tmp, ".memex");
 const cfgPath = join(cfgDir, "config.json");
 
@@ -106,7 +106,7 @@ async function junkState(): Promise<{ fm: Record<string, unknown>; embeddings: n
   }
 }
 
-describe("memex quarantine", () => {
+describe("memrain quarantine", () => {
   it("scan dry-run counts the pre-gate junk without stamping", async () => {
     const cap = capture();
     let code: number;

@@ -22,7 +22,7 @@ let chunkB: string;
 let chunkC: string;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-structural-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-structural-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 

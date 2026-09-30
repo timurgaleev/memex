@@ -18,7 +18,7 @@ afterEach(() => {
 
 describe("logRerankFailure", () => {
   it("appends an ISO-week-rotated JSONL record when MEMRAIN_AUDIT_DIR is set", () => {
-    const dir = mkdtempSync(join(tmpdir(), "memex-rerank-audit-"));
+    const dir = mkdtempSync(join(tmpdir(), "memrain-rerank-audit-"));
     process.env.MEMRAIN_AUDIT_DIR = dir;
     const now = new Date("2026-07-01T12:00:00Z");
     logRerankFailure(

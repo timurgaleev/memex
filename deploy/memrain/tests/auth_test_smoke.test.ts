@@ -1,5 +1,5 @@
 /**
- * `memex auth test <url> --token` — the live MCP smoke, exercised hermetically
+ * `memrain auth test <url> --token` — the live MCP smoke, exercised hermetically
  * through the injectable fetch (JSON and SSE response shapes, failure paths).
  */
 import { describe, expect, it } from "bun:test";

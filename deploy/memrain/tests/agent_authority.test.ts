@@ -31,7 +31,7 @@ let clientId: string;
 let auth: AuthInfo;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-agent-authority-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-agent-authority-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), { id: "alpha", kind: "other", pathPrefix: "tenant:alpha" });

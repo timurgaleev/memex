@@ -19,7 +19,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-reqlogdb-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-reqlogdb-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

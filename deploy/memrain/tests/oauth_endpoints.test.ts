@@ -43,7 +43,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
   let confClientSecret: string;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-oauth-ep-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-oauth-ep-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     provider = new OAuthProvider({ engine: storage.raw() });
@@ -1040,7 +1040,7 @@ describe("OAuth 2.1 authorization-code + PKCE / DCR / revoke", () => {
 describe("MEMRAIN_OAUTH_REQUIRE_LOGIN with no admin surface fails closed", () => {
   it("refuses to issue a code rather than auto-approving", async () => {
     process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN = "1";
-    const tmp = mkdtempSync(join(tmpdir(), "memex-oauth-noadmin-"));
+    const tmp = mkdtempSync(join(tmpdir(), "memrain-oauth-noadmin-"));
     const storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     const provider = new OAuthProvider({ engine: storage.raw() });
@@ -1079,7 +1079,7 @@ describe("MEMRAIN_OAUTH_REQUIRE_LOGIN — the parked /authorize is resumable aft
 
   beforeEach(async () => {
     process.env.MEMRAIN_OAUTH_REQUIRE_LOGIN = "1";
-    tmp = mkdtempSync(join(tmpdir(), "memex-oauth-resume-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-oauth-resume-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     const provider = new OAuthProvider({ engine: storage.raw() });

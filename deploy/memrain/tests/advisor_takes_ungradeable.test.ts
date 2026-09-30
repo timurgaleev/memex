@@ -18,7 +18,7 @@ import { Storage } from "../src/core/storage.ts";
 import { collectTakesUngradeable } from "../src/core/advisor/collectors.ts";
 import type { AdvisorContext } from "../src/core/advisor/types.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "memex-takes-ungradeable-"));
+const dir = mkdtempSync(join(tmpdir(), "memrain-takes-ungradeable-"));
 let storage: Storage;
 const ORIGINAL_BAR = process.env.MEMRAIN_GRADE_MIN_AGE_DAYS;
 

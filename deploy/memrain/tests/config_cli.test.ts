@@ -1,5 +1,5 @@
 /**
- * `memex config show|get|set|unset` — the CLI wrapper over runtime_config:
+ * `memrain config show|get|set|unset` — the CLI wrapper over runtime_config:
  * key-alphabet gate, redacted show, --pattern bulk unset.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runConfig } from "../src/commands/config.ts";
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-config-cli-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-config-cli-"));
 const cfgDir = join(tmp, ".memex");
 const cfgPath = join(cfgDir, "config.json");
 
@@ -55,7 +55,7 @@ afterAll(() => {
   }
 });
 
-describe("memex config CLI", () => {
+describe("memrain config CLI", () => {
   it("set + get round-trips a MEMRAIN_* key", async () => {
     const c1 = capture();
     let code: number;

@@ -31,7 +31,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-tag-identity-scope-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-tag-identity-scope-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const e = storage.engine();

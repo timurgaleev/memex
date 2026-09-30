@@ -15,7 +15,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-links-read-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-links-read-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   // Source pages must exist (FK on links.source_slug).

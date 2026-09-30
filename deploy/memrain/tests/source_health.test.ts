@@ -13,7 +13,7 @@ import {
   collectPerSourceHealth,
 } from "../src/core/source-health.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "memex-srchealth-"));
+const dir = mkdtempSync(join(tmpdir(), "memrain-srchealth-"));
 let storage: Storage;
 
 // A valid 1024-dim zero vector literal for the embeddings table.
@@ -85,7 +85,7 @@ describe("brainHealthMetrics", () => {
 
 describe("brainHealthMetrics — embed-skip pages excluded from coverage", () => {
   it("coverage converges to 100% when the only unembedded chunks are embed-skipped", async () => {
-    const d3 = mkdtempSync(join(tmpdir(), "memex-srchealth-skip-"));
+    const d3 = mkdtempSync(join(tmpdir(), "memrain-srchealth-skip-"));
     const s3 = new Storage({ dbPath: join(d3, "db") });
     await s3.init();
     try {
@@ -132,7 +132,7 @@ describe("brainHealthMetrics — embed-skip pages excluded from coverage", () =>
 
 describe("brainHealthMetrics — empty brain", () => {
   it("coverage is 1.0 when there is nothing to embed", async () => {
-    const d2 = mkdtempSync(join(tmpdir(), "memex-srchealth-empty-"));
+    const d2 = mkdtempSync(join(tmpdir(), "memrain-srchealth-empty-"));
     const s2 = new Storage({ dbPath: join(d2, "db") });
     await s2.init();
     try {

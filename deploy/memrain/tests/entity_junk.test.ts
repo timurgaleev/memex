@@ -62,7 +62,7 @@ describe("writeExtractedFacts", () => {
   let storage: Storage;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-entity-junk-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-entity-junk-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });

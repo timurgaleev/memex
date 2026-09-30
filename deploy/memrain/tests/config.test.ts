@@ -37,7 +37,7 @@ const baseJson = {
 };
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-config-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-config-"));
   jsonPath = join(tmp, "config.json");
 });
 

@@ -22,7 +22,7 @@ let storage: Storage;
 let priorEnv: string | undefined;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-hotmeta-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-hotmeta-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   priorEnv = process.env["MEMRAIN_HOT_MEMORY_META"];

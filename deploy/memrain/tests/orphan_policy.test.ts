@@ -60,7 +60,7 @@ describe("findOrphans", () => {
   let storage: Storage;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-orphanpolicy-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-orphanpolicy-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });
@@ -118,7 +118,7 @@ describe("provenance a remote caller cannot claim", () => {
   let s2: Storage;
 
   beforeEach(async () => {
-    tmp2 = mkdtempSync(join(tmpdir(), "memex-orphanauth-"));
+    tmp2 = mkdtempSync(join(tmpdir(), "memrain-orphanauth-"));
     s2 = new Storage({ dbPath: join(tmp2, "db") });
     await s2.init();
   });
@@ -184,7 +184,7 @@ describe("a page the brain only edited is still the author's", () => {
   let s3: Storage;
 
   beforeEach(async () => {
-    tmp3 = mkdtempSync(join(tmpdir(), "memex-orphanenrich-"));
+    tmp3 = mkdtempSync(join(tmpdir(), "memrain-orphanenrich-"));
     s3 = new Storage({ dbPath: join(tmp3, "db") });
     await s3.init();
   });

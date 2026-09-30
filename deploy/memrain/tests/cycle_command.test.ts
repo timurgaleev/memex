@@ -1,5 +1,5 @@
 /**
- * `memex cycle` one-shot command -- parsePhasesArg validation + a scoped
+ * `memrain cycle` one-shot command -- parsePhasesArg validation + a scoped
  * one-shot run against a PGLite Storage.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -38,7 +38,7 @@ describe("runCycleOnce with a phase subset (what `memex cycle --phases` runs)", 
   let tmp: string;
   let storage: Storage;
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-cyclecmd-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-cyclecmd-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });
@@ -74,7 +74,7 @@ describe("runCycle holds the daemon cycle lock (no double Bedrock spend)", () =>
   let tmp: string;
   let storage: Storage;
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-cyclelock-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-cyclelock-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     await putPage(storage, {

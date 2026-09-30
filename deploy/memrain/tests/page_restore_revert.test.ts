@@ -19,7 +19,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-restore-revert-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-restore-revert-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

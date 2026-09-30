@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { walkFiles } from "../src/core/walk.ts";
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-walk-test-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-walk-test-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 describe("walkFiles", () => {

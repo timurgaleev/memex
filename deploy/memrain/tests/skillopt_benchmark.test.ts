@@ -28,7 +28,7 @@ function bench(slug: string, body: string): void {
 const line = (o: Record<string, unknown>): string => JSON.stringify(o);
 
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), "memex-skillopt-bench-"));
+  dir = mkdtempSync(join(tmpdir(), "memrain-skillopt-bench-"));
 });
 
 afterAll(() => {
@@ -127,7 +127,7 @@ describe("loadSkillBenchmark", () => {
   });
 
   it("refuses a symlinked benchmark file and a symlinked skill directory", () => {
-    const outside = mkdtempSync(join(tmpdir(), "memex-skillopt-outside-"));
+    const outside = mkdtempSync(join(tmpdir(), "memrain-skillopt-outside-"));
     try {
       writeFileSync(join(outside, "routing-eval.jsonl"), line({ intent: "leak", expected_skill: "linked" }));
       mkdirSync(join(dir, "linked"));

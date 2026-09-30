@@ -14,7 +14,7 @@ const { tokenizeTitle, containsTokenRun } = __test__;
 
 describe("isTitlePhraseMatch", () => {
   it("matches a contiguous phrase inside the title", () => {
-    expect(isTitlePhraseMatch("master plan", "Memex — master plan for the brain")).toBe(true);
+    expect(isTitlePhraseMatch("master plan", "Memrain — master plan for the brain")).toBe(true);
   });
 
   it("matches an exact full-title (covers single-word chosen names)", () => {
@@ -23,7 +23,7 @@ describe("isTitlePhraseMatch", () => {
 
   it("rejects a single content token that is not a full-title match", () => {
     // "plan" alone is < MIN_CONTENT_TOKENS and not the whole title.
-    expect(isTitlePhraseMatch("plan", "Memex master plan")).toBe(false);
+    expect(isTitlePhraseMatch("plan", "Memrain master plan")).toBe(false);
   });
 
   it("does NOT match across token boundaries (substring guard)", () => {
@@ -32,12 +32,12 @@ describe("isTitlePhraseMatch", () => {
   });
 
   it("does NOT match a non-contiguous bag of words", () => {
-    expect(isTitlePhraseMatch("memex brain", "Memex — master plan for the brain")).toBe(false);
+    expect(isTitlePhraseMatch("memrain brain", "Memrain — master plan for the brain")).toBe(false);
   });
 
   it("ignores stopwords toward the content-token floor", () => {
     // "the plan" → 1 content token ("plan") → below floor, not a full title.
-    expect(isTitlePhraseMatch("the plan", "Memex master plan")).toBe(false);
+    expect(isTitlePhraseMatch("the plan", "Memrain master plan")).toBe(false);
   });
 
   it("is punctuation/case insensitive (NFKC + lowercase + non-alnum split)", () => {
@@ -53,7 +53,7 @@ describe("isTitlePhraseMatch", () => {
 
 describe("tokenizeTitle", () => {
   it("lowercases and splits on non-alphanumeric runs", () => {
-    expect(tokenizeTitle("Memex — Master Plan!")).toEqual(["memex", "master", "plan"]);
+    expect(tokenizeTitle("Memrain — Master Plan!")).toEqual(["memrain", "master", "plan"]);
   });
   it("drops empties and returns [] for falsy input", () => {
     expect(tokenizeTitle("")).toEqual([]);

@@ -18,7 +18,7 @@ const savedStall = process.env.MEMRAIN_CONNECTOR_STALL_DAYS;
 
 beforeEach(async () => {
   delete process.env.MEMRAIN_CONNECTOR_STALL_DAYS;
-  tmp = mkdtempSync(join(tmpdir(), "memex-doctor-connectors-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-doctor-connectors-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

@@ -162,7 +162,7 @@ describe("quiescence status on PGLite", () => {
   let dir: string;
   let storage: Storage;
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), "memex-status-quiescent-"));
+    dir = mkdtempSync(join(tmpdir(), "memrain-status-quiescent-"));
     storage = new Storage({ dbPath: dir });
     await storage.init();
   });
@@ -185,8 +185,8 @@ describe.skipIf(!PG_URL)("quiescence status on Postgres", () => {
   dbCases(() => pg, "postgres");
 });
 
-describe("memex status --quiescent (end to end)", () => {
-  const tmp = mkdtempSync(join(tmpdir(), "memex-status-quiescent-cli-"));
+describe("memrain status --quiescent (end to end)", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "memrain-status-quiescent-cli-"));
   const cfgDir = join(tmp, ".memex");
   const cfgPath = join(cfgDir, "config.json");
   const saved = process.env[MAINTENANCE_ENV];

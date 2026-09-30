@@ -1,6 +1,6 @@
 /**
  * OperationError — structured, agent-consumable error envelope, with the
- * memex public-ingress redaction contract.
+ * memrain public-ingress redaction contract.
  *
  * Unit: `toEnvelope` withholds the free-text `message` on the public boundary
  * but keeps the constrained `error` code + author-static `suggestion`/`docs`.
@@ -72,7 +72,7 @@ describe("dispatchTool renders OperationError", () => {
   let storage: Storage;
 
   beforeAll(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-operr-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-operr-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });

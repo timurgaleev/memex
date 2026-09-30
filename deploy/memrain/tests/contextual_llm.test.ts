@@ -106,7 +106,7 @@ describe("contextual re-embed — LLM tier wiring", () => {
   };
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-ctx-llm-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-ctx-llm-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     embedded = [];

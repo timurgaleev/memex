@@ -44,7 +44,7 @@ const found = async (token: string): Promise<string[]> =>
   keywordSearch(storage.engine(), token, 10);
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-visibility-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-visibility-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await seedDoc("doc_visible", "alphavisible");

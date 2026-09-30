@@ -42,7 +42,7 @@ async function close(): Promise<void> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-teamops-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-teamops-"));
   const cfgDir = join(tmp, ".memex");
   mkdirSync(cfgDir, { recursive: true });
   pgPath = join(cfgDir, "brain.pglite");

@@ -55,7 +55,7 @@ describe("pre-auth token-verification throttle", () => {
     provider: OAuthProvider,
     limiter: RateLimiter,
   ): Promise<string> {
-    tmp = mkdtempSync(join(tmpdir(), "memex-preauth-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-preauth-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     server = startServer({
@@ -224,7 +224,7 @@ describe("OAuth endpoint limiters are keyed per client, not per socket", () => {
   });
 
   it("one client exhausting /token does not lock out a different client IP", async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-tokenkey-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-tokenkey-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     const provider = new OAuthProvider({ engine: storage.raw() });

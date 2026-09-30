@@ -60,7 +60,7 @@ describe("MCP write-tools gate (internal token configured)", () => {
   let url: string;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-mcp-inttok-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-mcp-inttok-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     server = startServer({
@@ -158,7 +158,7 @@ describe("MCP write-tools gate (internal token unset)", () => {
   let url: string;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-mcp-inttok-off-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-mcp-inttok-off-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     server = startServer({ host: "127.0.0.1", port: 0, storage });

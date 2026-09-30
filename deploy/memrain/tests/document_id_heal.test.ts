@@ -27,7 +27,7 @@ let storage: Storage;
 let savedVault: string | undefined;
 
 beforeEach(async () => {
-  tmp = realpathSync(mkdtempSync(join(tmpdir(), "memex-id-heal-")));
+  tmp = realpathSync(mkdtempSync(join(tmpdir(), "memrain-id-heal-")));
   vault = join(tmp, "memory");
   mkdirSync(vault, { recursive: true });
   storage = new Storage({ dbPath: join(tmp, "db") });

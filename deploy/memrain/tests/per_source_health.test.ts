@@ -16,7 +16,7 @@ import {
   type PerSourceHealth,
 } from "../src/core/source-health.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "memex-persrc-"));
+const dir = mkdtempSync(join(tmpdir(), "memrain-persrc-"));
 let storage: Storage;
 
 const ZERO_VEC = `[${Array(1024).fill(0).join(",")}]`;

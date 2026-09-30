@@ -45,7 +45,7 @@ const docId = async (path: string): Promise<string | null> => {
 };
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-page-truth-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-page-truth-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

@@ -19,7 +19,7 @@ const depthOf = (hits: { slug: string; depth: number }[], slug: string) =>
   hits.find((h) => h.slug === slug)?.depth;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-traverse-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-traverse-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   // links.source_slug has a FK to pages(slug) — create every node first.

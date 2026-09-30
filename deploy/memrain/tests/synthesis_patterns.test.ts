@@ -42,7 +42,7 @@ async function seedReflections(n: number): Promise<string[]> {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-patterns-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-patterns-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

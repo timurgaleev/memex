@@ -26,7 +26,7 @@ const stubJudge = (when: string, what: string, who: string[] = ["people/alice"])
 
 // ── Doctor: chronicle-projection-health ────────────────────────────────────
 describe("doctor chronicle-projection-health", () => {
-  const tmp = mkdtempSync(join(tmpdir(), "memex-chron-doctor-"));
+  const tmp = mkdtempSync(join(tmpdir(), "memrain-chron-doctor-"));
   const cfgDir = join(tmp, ".memex");
   const dbPath = join(cfgDir, "brain.pglite");
   const cfgPath = join(cfgDir, "config.json");
@@ -102,7 +102,7 @@ describe("doctor chronicle-projection-health", () => {
 
 // ── Advisor: collectChronicle ───────────────────────────────────────────────
 describe("advisor collectChronicle", () => {
-  const dir = mkdtempSync(join(tmpdir(), "memex-chron-advisor-"));
+  const dir = mkdtempSync(join(tmpdir(), "memrain-chron-advisor-"));
   let storage: Storage;
   const NOW = new Date("2026-06-22T00:00:00.000Z");
   const ctx = (sourceIds?: readonly string[]): AdvisorContext => ({
@@ -244,7 +244,7 @@ describe("capture chronicle routing", () => {
   });
 
   describe("runCapture integration", () => {
-    const tmp = mkdtempSync(join(tmpdir(), "memex-chron-capture-"));
+    const tmp = mkdtempSync(join(tmpdir(), "memrain-chron-capture-"));
     const cfgDir = join(tmp, ".memex");
     const cfgPath = join(cfgDir, "config.json");
 

@@ -94,7 +94,7 @@ async function countSpendRows(): Promise<number> {
 
 beforeAll(async () => {
   for (const k of NEUTRALISED) delete process.env[k];
-  tmp = mkdtempSync(join(tmpdir(), "memex-continuity-bench-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-continuity-bench-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   fixtures = loadContinuityCorpus();

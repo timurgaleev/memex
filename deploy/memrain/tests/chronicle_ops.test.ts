@@ -104,7 +104,7 @@ async function seedOntologyRow(
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-chronicle-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-chronicle-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), { id: A, kind: "vault", pathPrefix: "/tenant-a" });

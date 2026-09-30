@@ -37,7 +37,7 @@ const docText = (s2extra = "") =>
 const SRC = "/notes/reuse.md";
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-reindex-reuse-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-reindex-reuse-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   embedCalls = [];

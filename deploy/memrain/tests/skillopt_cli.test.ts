@@ -1,5 +1,5 @@
 /**
- * `memex skillopt eval`: refused unless MEMRAIN_SKILLOPT_ENABLED=1 (before any
+ * `memrain skillopt eval`: refused unless MEMRAIN_SKILLOPT_ENABLED=1 (before any
  * storage opens), arguments validated, --max-usd clamped to the env ceiling,
  * an unknown --skill answered with the skills that have a benchmark, a
  * worst case over the cap refused before storage, and the gate verdict
@@ -20,7 +20,7 @@ function skill(slug: string, description: string): string {
 }
 
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), "memex-skillopt-cli-"));
+  dir = mkdtempSync(join(tmpdir(), "memrain-skillopt-cli-"));
   mkdirSync(join(dir, "people"));
   writeFileSync(join(dir, "people", "SKILL.md"), skill("people", "Look up what the brain knows about a person"));
   const lines = Array.from({ length: 6 }, (_, i) =>
@@ -76,7 +76,7 @@ function harness(overrides: Record<string, unknown> = {}) {
   return { h, opts };
 }
 
-describe("memex skillopt eval", () => {
+describe("memrain skillopt eval", () => {
   it("refuses unless MEMRAIN_SKILLOPT_ENABLED=1, before storage opens or a call is made", async () => {
     for (const enabled of [undefined, "", "0", "true"]) {
       const { h, opts } = harness({ enabled });
@@ -155,7 +155,7 @@ describe("memex skillopt eval", () => {
   });
 
   it("exits 0 with ACCEPT when the candidate beats the pack's current text", async () => {
-    const worse = mkdtempSync(join(tmpdir(), "memex-skillopt-cli-worse-"));
+    const worse = mkdtempSync(join(tmpdir(), "memrain-skillopt-cli-worse-"));
     try {
       mkdirSync(join(worse, "people"));
       writeFileSync(join(worse, "people", "SKILL.md"), skill("people", "Unrelated notes about soil"));
@@ -174,7 +174,7 @@ describe("memex skillopt eval", () => {
   });
 
   it("rejects a greedy candidate that wins its own cases by taking another skill's", async () => {
-    const pack = mkdtempSync(join(tmpdir(), "memex-skillopt-cli-greedy-"));
+    const pack = mkdtempSync(join(tmpdir(), "memrain-skillopt-cli-greedy-"));
     try {
       mkdirSync(join(pack, "people"));
       writeFileSync(join(pack, "people", "SKILL.md"), skill("people", "Unrelated notes about soil"));

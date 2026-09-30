@@ -261,7 +261,7 @@ describe("data-manifest.sql on PGLite", () => {
   let engine: PGliteEngine;
 
   beforeAll(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-manifest-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-manifest-"));
     engine = new PGliteEngine({ dbPath: join(tmp, "db") });
     await engine.ready();
     await runMigrations(engine);

@@ -70,7 +70,7 @@ for (const [lang, probe] of Object.entries(GRAMMAR_PROBES)) {
 // The wrapping is the whole point of the fix: without it a link failure is an
 // empty Error that names neither the file nor the cause.
 test("an unlinkable blob raises GrammarLoadError, and the failure is cached", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "memex-bad-grammar-"));
+  const dir = mkdtempSync(join(tmpdir(), "memrain-bad-grammar-"));
   writeFileSync(join(dir, WASM_FILES.bash), Buffer.from("\0asm   not-a-grammar"));
   const prev = process.env.MEMRAIN_WASM_DIR;
   process.env.MEMRAIN_WASM_DIR = dir;
@@ -106,7 +106,7 @@ test("an unlinkable blob raises GrammarLoadError, and the failure is cached", as
 // wrong grammar for the files it will be handed — the mis-vendor that a
 // bytes-or-links check cannot see. Only parsing the probe catches it.
 test("a blob that links but cannot parse the language fails at the PARSE stage", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "memex-swapped-grammar-"));
+  const dir = mkdtempSync(join(tmpdir(), "memrain-swapped-grammar-"));
   // A real, healthy grammar — vendored under the wrong name.
   copyFileSync(
     join(import.meta.dir, "..", "wasm", WASM_FILES.python),

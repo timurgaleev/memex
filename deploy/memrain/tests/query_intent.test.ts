@@ -92,7 +92,7 @@ describe("classifyQuerySuggestions — recency/salience axes", () => {
 });
 
 describe("classifyIntent — zero-LLM default", () => {
-  it("resolves without Bedrock and maps the taxonomy onto memex intents", async () => {
+  it("resolves without Bedrock and maps the taxonomy onto memrain intents", async () => {
     delete process.env.MEMRAIN_INTENT_LLM; // default: no LLM call
     // Heuristics first.
     expect(await classifyIntent('"exact phrase"')).toBe("exact");

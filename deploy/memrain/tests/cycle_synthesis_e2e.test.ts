@@ -19,7 +19,7 @@ let storage: Storage;
 let engine: Engine;
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-autothink-e2e-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-autothink-e2e-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   engine = storage.engine();

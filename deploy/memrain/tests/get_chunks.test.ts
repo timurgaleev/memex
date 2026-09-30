@@ -35,7 +35,7 @@ async function seed() {
 }
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-getchunks-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-getchunks-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await seed();

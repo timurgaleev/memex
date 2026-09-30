@@ -33,7 +33,7 @@ let provider: OAuthProvider;
 let seq = 0;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-rescope-unbound-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-rescope-unbound-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   await registerSource(storage.engine(), { id: "tina", kind: "other", pathPrefix: "tenant:tina" });

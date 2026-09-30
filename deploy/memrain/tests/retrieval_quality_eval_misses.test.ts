@@ -287,8 +287,8 @@ let dated: Storage;
 let uniform: Storage;
 
 beforeAll(async () => {
-  tmpDated = mkdtempSync(join(tmpdir(), "memex-eval-miss-dated-"));
-  tmpUniform = mkdtempSync(join(tmpdir(), "memex-eval-miss-uniform-"));
+  tmpDated = mkdtempSync(join(tmpdir(), "memrain-eval-miss-dated-"));
+  tmpUniform = mkdtempSync(join(tmpdir(), "memrain-eval-miss-uniform-"));
   dated = new Storage({ dbPath: join(tmpDated, "db") });
   uniform = new Storage({ dbPath: join(tmpUniform, "db") });
   await dated.init();
@@ -436,7 +436,7 @@ describe("identifier arm — precision guards", () => {
   });
 
   it("never resurfaces a hidden page", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "memex-eval-miss-hidden-"));
+    const tmp = mkdtempSync(join(tmpdir(), "memrain-eval-miss-hidden-"));
     const s = new Storage({ dbPath: join(tmp, "db") });
     try {
       await s.init();

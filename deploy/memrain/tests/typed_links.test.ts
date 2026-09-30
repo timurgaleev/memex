@@ -16,7 +16,7 @@ let storage: Storage;
 
 beforeEach(async () => {
   process.env.MEMRAIN_TYPED_LINKS = "1";
-  tmp = mkdtempSync(join(tmpdir(), "memex-typedlinks-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-typedlinks-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

@@ -19,7 +19,7 @@ import {
   redactConfigValue,
 } from "../src/core/runtime-config.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "memex-runtime-config-"));
+const dir = mkdtempSync(join(tmpdir(), "memrain-runtime-config-"));
 let storage: Storage;
 
 beforeAll(async () => {

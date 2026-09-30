@@ -30,7 +30,7 @@ async function seed(name: string, token: string, scopes: string[] | null) {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-pat-scopes-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-pat-scopes-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   provider = new OAuthProvider({ engine: storage.raw() });

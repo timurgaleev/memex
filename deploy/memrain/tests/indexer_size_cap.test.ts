@@ -19,7 +19,7 @@ describe("indexDocument size cap", () => {
   let storage: Storage;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-sizecap-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-sizecap-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });

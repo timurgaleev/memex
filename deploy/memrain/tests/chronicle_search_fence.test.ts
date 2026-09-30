@@ -42,7 +42,7 @@ beforeAll(async () => {
     // hybridSearch, which is what we exercise here.
   }));
   ({ dispatchTool } = await import("../src/mcp/dispatch.ts"));
-  tmp = mkdtempSync(join(tmpdir(), "memex-chronicle-fence-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-chronicle-fence-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 });

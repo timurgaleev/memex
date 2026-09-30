@@ -22,7 +22,7 @@ let tmp: string;
 let storage: Storage;
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-facts-recall-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-facts-recall-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   // The tombstone columns ship as a dedicated migration; apply them

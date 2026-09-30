@@ -55,7 +55,7 @@ const call = async (name: string, args: Record<string, unknown>, remote: boolean
   );
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-dispatch-fence-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-dispatch-fence-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
 

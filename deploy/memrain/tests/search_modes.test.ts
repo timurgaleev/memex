@@ -1,5 +1,5 @@
 /**
- * `memex search modes` — read-only ranking-config view. Pure (no storage, no
+ * `memrain search modes` — read-only ranking-config view. Pure (no storage, no
  * search); asserts it surfaces the resolved knobs + intent taxonomy and tracks
  * env overrides.
  */

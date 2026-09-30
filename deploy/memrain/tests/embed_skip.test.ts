@@ -44,7 +44,7 @@ describe("indexDocument embed-skip gate", () => {
   let storage: Storage;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-embed-skip-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-embed-skip-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
   });

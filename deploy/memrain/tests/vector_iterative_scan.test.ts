@@ -173,7 +173,7 @@ describe("PGLite skip path", () => {
   let storage: Storage;
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-iterscan-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-iterscan-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     await registerSource(storage.engine(), { id: "a", kind: "vault", pathPrefix: "/iter-a" });

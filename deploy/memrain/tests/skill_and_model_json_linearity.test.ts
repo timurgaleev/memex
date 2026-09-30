@@ -125,7 +125,7 @@ describe("patterns array recovery cost", () => {
     });
 
   beforeEach(async () => {
-    tmp = mkdtempSync(join(tmpdir(), "memex-patterns-lin-"));
+    tmp = mkdtempSync(join(tmpdir(), "memrain-patterns-lin-"));
     storage = new Storage({ dbPath: join(tmp, "db") });
     await storage.init();
     for (let i = 1; i <= 3; i++) {

@@ -61,7 +61,7 @@ function refresh(refreshToken: string): Promise<Response> {
 }
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-revoke-grant-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-revoke-grant-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const e = storage.engine();

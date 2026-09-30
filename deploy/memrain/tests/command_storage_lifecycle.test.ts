@@ -27,7 +27,7 @@ afterAll(() => {
   if (pgliteTemplate !== undefined) process.env.MEMRAIN_TEST_PGLITE_TEMPLATE = pgliteTemplate;
 });
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-storage-lifecycle-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-storage-lifecycle-"));
 
 /** Engine stub — the failure shapes a real driver cannot be asked for. */
 function stubEngine(

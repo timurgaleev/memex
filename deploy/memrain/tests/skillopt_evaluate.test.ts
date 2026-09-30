@@ -42,7 +42,7 @@ function skill(slug: string, description: string, name = slug): string {
 }
 
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), "memex-skillopt-eval-"));
+  dir = mkdtempSync(join(tmpdir(), "memrain-skillopt-eval-"));
   mkdirSync(join(dir, "people"));
   writeFileSync(join(dir, "people", "SKILL.md"), skill("people", "Look up what the brain knows about a person"));
   mkdirSync(join(dir, "garden"));

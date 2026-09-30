@@ -32,7 +32,7 @@ function auth(sourceId: string): AuthInfo {
 const envelope = (r: ToolCallResult): any => JSON.parse(r.content[0]!.text);
 
 beforeAll(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-slug-suggest-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-slug-suggest-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   const e = storage.engine();

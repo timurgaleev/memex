@@ -1,5 +1,5 @@
 /**
- * `memex agent run|logs` and the env gate: run refuses unless the loop is
+ * `memrain agent run|logs` and the env gate: run refuses unless the loop is
  * enabled and otherwise queues a `subagent` job with its timeout and no
  * retries; logs renders a transcript from the ledger; serve registers the
  * handler only when MEMRAIN_AGENT_ENABLED=1.
@@ -33,7 +33,7 @@ let out: string[];
 let err: string[];
 
 beforeEach(async () => {
-  tmp = mkdtempSync(join(tmpdir(), "memex-agent-cli-"));
+  tmp = mkdtempSync(join(tmpdir(), "memrain-agent-cli-"));
   storage = new Storage({ dbPath: join(tmp, "db") });
   await storage.init();
   out = [];

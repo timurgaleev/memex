@@ -2,9 +2,9 @@
  * Every fix_command an advisor finding emits has to name something that
  * exists.
  *
- * The finding that motivated this pointed at `memex doctor` for dead links —
+ * The finding that motivated this pointed at `memrain doctor` for dead links —
  * doctor has no dead-link check, so following the advice printed ok:true while
- * the condition stayed. Another pointed at `memex orphans` for islanded pages,
+ * the condition stayed. Another pointed at `memrain orphans` for islanded pages,
  * which purges orphaned DB rows and has nothing to do with pages. A wrong
  * fix_command is worse than none: it reports success and the problem persists.
  *

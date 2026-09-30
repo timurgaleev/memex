@@ -11,7 +11,7 @@ import {
   appendAudit,
 } from "../src/core/audit-week-file.ts";
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-audit-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-audit-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 describe("isoWeekKey", () => {

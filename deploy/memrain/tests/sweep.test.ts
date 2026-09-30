@@ -32,7 +32,7 @@ function* walk(root: string, ignore: ReadonlySet<string>): Generator<string> {
   }
 }
 
-const tmp = mkdtempSync(join(tmpdir(), "memex-sweep-test-"));
+const tmp = mkdtempSync(join(tmpdir(), "memrain-sweep-test-"));
 afterAll(() => {
   rmSync(tmp, { recursive: true, force: true });
 });
@@ -71,8 +71,8 @@ describe("vault walk (mirror of sweep's walker)", () => {
 // at a path the walk merely SAW is not.
 describe("vault sweep source classification", () => {
   it("classifies the file it confirmed, not the one it never indexed", async () => {
-    const dbDir = mkdtempSync(join(tmpdir(), "memex-sweep-src-db-"));
-    const vault = mkdtempSync(join(tmpdir(), "memex-sweep-src-vault-"));
+    const dbDir = mkdtempSync(join(tmpdir(), "memrain-sweep-src-db-"));
+    const vault = mkdtempSync(join(tmpdir(), "memrain-sweep-src-vault-"));
     const storage = new Storage({ dbPath: dbDir });
     await storage.init();
     try {
@@ -127,8 +127,8 @@ describe("vault sweep source classification", () => {
 
 describe("vault sweep refused paths", () => {
   it("reports a file the re-read guard refuses instead of only warning", async () => {
-    const dbDir = mkdtempSync(join(tmpdir(), "memex-sweep-refused-db-"));
-    const vault = mkdtempSync(join(tmpdir(), "memex-sweep-refused-vault-"));
+    const dbDir = mkdtempSync(join(tmpdir(), "memrain-sweep-refused-db-"));
+    const vault = mkdtempSync(join(tmpdir(), "memrain-sweep-refused-vault-"));
     const storage = new Storage({ dbPath: dbDir });
     await storage.init();
     try {
