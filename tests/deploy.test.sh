@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # tests/deploy.test.sh — deploy/deploy.sh against stub `docker` and `git`:
 # the preflights refuse before anything starts, the data gates stop the app
-# before the ingress, maintenance holds the ingress, and the happy path starts
-# the app alone and then the whole set without naming a service.
+# before the ingress, maintenance holds the ingress, and the happy path stops
+# the ingress, starts the app alone and then the whole set without naming a
+# service.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,7 +32,10 @@ command -v jq >/dev/null 2>&1 || { echo "deploy.test.sh: jq not installed — sk
 #   health.json      /health body after the build (version is filled in)
 #   status.json      `status` output (pre and post deploy alike unless
 #                    pre_status.json exists)
-#   running_after    services `ps --status running --services` prints
+#   services         services `config --services` prints
+#   running_after    services `ps --status running --services` prints after
+#                    the ingress start; before it, an ingress service runs
+#                    until `stop` names it (never, when stop_ignored exists)
 #   calls.log        one line per docker/git call
 write_stubs() {
   local bin="$1"
@@ -75,10 +79,20 @@ case "$1" in
           if [ -e "$S/config_fails" ]; then echo "service \"caddy\" depends on undefined service \"memex\"" >&2; exit 15; fi
           exit 0
         fi
-        if [ "${2:-}" = "--services" ]; then printf 'memrain\ncloudflared\n'; exit 0; fi ;;
-      up) case "$*" in *--build*) touch "$S/up_done" ;; esac; exit 0 ;;
-      stop) exit 0 ;;
-      ps) cat "$S/running_after" 2>/dev/null; exit 0 ;;
+        if [ "${2:-}" = "--services" ]; then cat "$S/services"; exit 0; fi ;;
+      up) case "$*" in *--no-build*) touch "$S/ingress_up" ;; *--build*) touch "$S/up_done" ;; esac; exit 0 ;;
+      stop)
+        shift
+        if [ ! -e "$S/stop_ignored" ]; then for svc in "$@"; do touch "$S/stopped_$svc"; done; fi
+        exit 0 ;;
+      ps)
+        if [ -e "$S/ingress_up" ]; then cat "$S/running_after" 2>/dev/null; exit 0; fi
+        while read -r svc; do
+          case "$svc" in
+            cloudflared|caddy) [ -e "$S/stopped_$svc" ] || echo "$svc" ;;
+          esac
+        done < "$S/services"
+        exit 0 ;;
     esac
     exit 0 ;;
 esac
@@ -111,6 +125,7 @@ ws_new() {
   echo v1.0.0 > "$S/version"
   printf '{"ok":true,"db":"postgres","version":"@VERSION@"}\n' > "$S/health.json"
   status_json 100 true 2
+  printf 'memrain\ncloudflared\n' > "$S/services"
   printf 'memrain\ncloudflared\n' > "$S/running_after"
 }
 
@@ -129,6 +144,15 @@ calls() { cat "$S/calls.log" 2>/dev/null; }
 no_up() { ! calls | grep -q 'compose.* up '; }
 no_ingress() { ! calls | grep -q 'compose.* up -d --no-build'; }
 stopped() { calls | grep -q 'compose.* stop memrain$'; }
+# ingress_down SVC -> SVC was stopped before the app started, no other stop
+# named anything but SVC or the app, and the ingress was never started again.
+ingress_down() {
+  local stop_at up_at
+  stop_at="$(calls | grep -nE -- "compose.* stop $1\$" | head -n 1 | cut -d: -f1)"
+  up_at="$(calls | grep -nE -- 'compose.* up -d --build' | head -n 1 | cut -d: -f1)"
+  [ -n "$stop_at" ] && [ -n "$up_at" ] && [ "$stop_at" -lt "$up_at" ] \
+    && ! calls | grep 'compose.* stop ' | grep -vqE -- "stop ($1|memrain)\$"
+}
 
 echo "== deploy.sh =="
 
@@ -182,8 +206,8 @@ fi
 # 4. pages=0, and pages below the running container's count.
 ws_new; status_json 0 true 0
 ec=0; run_deploy || ec=$?
-if [ "$ec" -eq 1 ] && stopped && no_ingress; then
-  pass "pages=0: stop, no ingress"
+if [ "$ec" -eq 1 ] && stopped && no_ingress && ingress_down cloudflared; then
+  pass "pages=0: stop, no ingress; the ingress stopped before the app stays down"
 else
   die "pages=0 (exit $ec)"; cat "$WS/out.log"
 fi
@@ -240,10 +264,10 @@ fi
 
 # 8. Maintenance: every gate runs, the ingress is held, exit 0.
 ws_new; printf '{"ok":true,"db":"postgres","version":"@VERSION@","maintenance":true}\n' > "$S/health.json"
-if run_deploy && no_ingress && ! stopped \
+if run_deploy && no_ingress && ! stopped && ingress_down cloudflared \
    && grep -qx 'HELD: maintenance on; ingress not started' "$WS/out.log" \
    && [ "$(grep -c '^HELD' "$WS/out.log")" -eq 1 ] && ! grep -q '^OK:' "$WS/out.log"; then
-  pass "maintenance: HELD line, exit 0, no ingress up"
+  pass "maintenance: ingress stopped before the app and not restarted, HELD line, exit 0"
 else
   die "maintenance hold"; cat "$WS/out.log"; calls
 fi
@@ -298,10 +322,12 @@ fi
 
 # 10. Happy path: the order of the calls and the shape of each.
 ws_new; printf 'COMPOSE_FILE=deploy/docker-compose.yml:/etc/memrain/compose.caddy.yml\n' >> "$WS/.env"
+printf 'memrain\ncaddy\nbackup\n' > "$S/services"; printf 'memrain\ncaddy\nbackup\n' > "$S/running_after"
 if run_deploy; then
   # First occurrence of each step, in the order the steps must run.
   in_order=1 prev=0
-  for pat in 'compose.* config -q' '^docker ps ' '^git describe' 'compose.* up -d --build' \
+  for pat in 'compose.* config -q' '^docker ps ' '^git describe' 'compose.* stop caddy$' \
+             'compose.* ps --status running' 'compose.* up -d --build' \
              'State.Health' 'exec deploy-memrain-1 wget' 'cli.ts status' 'compose.* up -d --no-build'; do
     at="$(calls | grep -nE -- "$pat" | head -n 1 | cut -d: -f1)"
     if [ -z "$at" ] || [ "$at" -le "$prev" ]; then in_order=0; echo "    out of order or missing: $pat"; fi
@@ -313,11 +339,12 @@ if run_deploy; then
      && printf '%s' "$up_app" | grep -q -- '-f deploy/docker-compose.yml -f /etc/memrain/compose.caddy.yml' \
      && printf '%s' "$up_app" | grep -q -- 'up -d --build --no-deps memrain$' \
      && printf '%s' "$up_all" | grep -q -- 'up -d --no-build$' \
+     && calls | grep -q 'compose.* stop caddy$' && ! calls | grep -qE 'stop .*(cloudflared|backup|memrain)' \
      && ! calls | grep -q -- '--remove-orphans' \
      && ! calls | grep -qE 'up .*cloudflared' \
      && calls | grep -qx "git describe --tags --match v\[0-9\]\* --always --dirty" \
      && grep -qx 'OK: deploy-memrain-1 healthy, serving v1.0.0, db=postgres, pages=100, ingress up' "$WS/out.log"; then
-    pass "happy path: preflights → app alone → gates → ingress; two -f; no orphans flag; no named ingress"
+    pass "happy path: preflights → caddy stopped → app alone → gates → ingress; two -f; no orphans flag; no named ingress"
   else
     die "happy path shape"; calls; cat "$WS/out.log"
   fi
@@ -349,4 +376,30 @@ if run_deploy && grep -q 'pages=100, ingress up' "$WS/out.log"; then
   pass "status with a log line before the JSON: gates still read it"
 else
   die "status prefix line"; cat "$WS/out.log"
+fi
+
+# 14. The ingress does not stop: the app is never started.
+ws_new; touch "$S/stop_ignored"
+ec=0; run_deploy || ec=$?
+if [ "$ec" -eq 1 ] && no_up && grep -q 'cloudflared is still running after stop' "$WS/out.log"; then
+  pass "ingress still running after stop: exit 1, app not started"
+else
+  die "ingress stop verification (exit $ec)"; cat "$WS/out.log"; calls
+fi
+
+# 15. The stamp gate exits without gate_fail: the ingress still stays down.
+ws_new; printf '{"ok":true,"db":"postgres","version":"v0.9.9"}\n' > "$S/health.json"
+ec=0; run_deploy || ec=$?
+if [ "$ec" -eq 1 ] && ingress_down cloudflared && no_ingress; then
+  pass "stamp mismatch: the ingress stopped before the app stays down"
+else
+  die "stamp gate ingress (exit $ec)"; cat "$WS/out.log"; calls
+fi
+
+# 16. No ingress service in the set: nothing is stopped.
+ws_new; printf 'memrain\n' > "$S/services"; printf 'memrain\n' > "$S/running_after"
+if run_deploy && ! calls | grep -q 'compose.* stop '; then
+  pass "no ingress service: no stop call, deploy passes"
+else
+  die "no ingress service"; cat "$WS/out.log"; calls
 fi

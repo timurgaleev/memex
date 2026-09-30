@@ -238,8 +238,8 @@ reopen.
    read a PGLite directory. Instead, `cp -a` the stopped data directory to a
    sibling path. That cold copy is the baseline and the rollback source.
 2. Set `MEMRAIN_MAINTENANCE=1` in `.env`. The server then starts no background
-   work (code sweep, jobs worker, cycle, token sweep) and `deploy.sh` does not
-   start the ingress.
+   work (code sweep, jobs worker, cycle, token sweep). `deploy.sh` stops the
+   ingress before the new app starts and does not start it again.
 3. Deploy:
 
    ```bash

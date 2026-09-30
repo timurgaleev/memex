@@ -4,11 +4,11 @@
 # container proved it serves the real brain.
 #
 # Order: preflights (compose parses, no pre-rename container, the secrets are
-# staged under the new name, the Postgres URL is staged when required) → build
-# and start the app alone → healthy + stamp gate → data gates (db=postgres,
-# pages ≥ the floor, OAuth state consistent) → ingress. A failed data gate
-# stops the app before anything outside can reach it. With
-# MEMRAIN_MAINTENANCE=1 the ingress is held back.
+# staged under the new name, the Postgres URL is staged when required) → stop
+# the ingress → build and start the app alone → healthy + stamp gate → data
+# gates (db=postgres, pages ≥ the floor, OAuth state consistent) → ingress. A
+# failed gate leaves the ingress stopped and the app unreachable from outside.
+# With MEMRAIN_MAINTENANCE=1 the ingress is held back.
 #
 # Why the stamp exists: the build arg, the Dockerfile ENV, `version.ts` and the
 # `/health` payload were wired end to end, but nothing ever supplied the value,
@@ -161,6 +161,28 @@ MEMRAIN_VERSION="$(git describe --tags --match 'v[0-9]*' --always --dirty)"
 MEMEX_VERSION="$MEMRAIN_VERSION"
 export MEMRAIN_VERSION MEMEX_VERSION
 echo "==> building ${SERVICE} stamped ${MEMRAIN_VERSION}"
+
+# The ingress goes down before the new app starts. Left running, it reaches the
+# new container through the pre-rename network alias as soon as it joins, before
+# the gates below have run and even in maintenance. It comes back only in the
+# ingress step at the end. Only the ingress services compose resolves are
+# named; nothing else is stopped and nothing is treated as an orphan.
+services="$(compose config --services)" || { echo "FAIL: docker compose cannot list the services of ${COMPOSE_FILE}" >&2; exit 1; }
+INGRESS=()
+for svc in $services; do
+  case "$svc" in cloudflared|caddy) INGRESS+=("$svc") ;; esac
+done
+if [ "${#INGRESS[@]}" -gt 0 ]; then
+  echo "==> stopping the ingress (${INGRESS[*]}) until the new app passes its gates"
+  compose stop "${INGRESS[@]}" || { echo "FAIL: could not stop the ingress (${INGRESS[*]}); ${SERVICE} was not started" >&2; exit 1; }
+  still="$(compose ps --status running --services)" || { echo "FAIL: cannot confirm the ingress stopped; ${SERVICE} was not started" >&2; exit 1; }
+  for svc in "${INGRESS[@]}"; do
+    if printf '%s\n' "$still" | grep -qx "$svc"; then
+      echo "FAIL: ${svc} is still running after stop; ${SERVICE} was not started" >&2
+      exit 1
+    fi
+  done
+fi
 
 compose up -d --build --no-deps "$SERVICE"
 
