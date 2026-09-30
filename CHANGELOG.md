@@ -6,6 +6,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.4] — 2026-09-30
+
+### Fixed
+- The admin bootstrap token hint, in the server's own error message and in
+  `docs/DEPLOYMENT.md`, now suggests `openssl rand -hex 32`. The old
+  `openssl rand -base64 32` form ends in `=`, which the server rejects at
+  boot, so following it stopped a fresh install.
+- `make deploy` runs `deploy/deploy.sh` instead of a bare `docker compose up`,
+  so the image carries its version stamp and the ingress overlay is kept.
+
+### Changed
+- The install docs now match what a fresh setup actually needs: the Terraform
+  state bucket must exist before `make init`; after filling the tunnel token
+  or the admin secret, re-fetch secrets on the host and recreate the
+  container; host commands in an SSM session run with `sudo`; the stack
+  expects an EU region, and a different region needs its availability zones
+  set in `terraform.tfvars`; `.env.example` names `SECRETS_PREFIX`; a private
+  fork needs an SSH `repo_url`.
+- The local quickstart shows how to add a note your personal access token can
+  find, and says up front that search needs AWS credentials with Bedrock
+  Titan access.
+- Bundled skills call the CLI in forms that exist (`memrain call <tool>
+  --args '<json>'`, no `doctor --json`), and the scheduled-work example moves
+  its JSON into a script so systemd quoting cannot break it.
+
 ## [1.0.3] — 2026-09-30
 
 ### Fixed
