@@ -24,6 +24,6 @@ Production runs Postgres.
 ```bash
 cd deploy/memrain
 bun install --frozen-lockfile
-bun test                         # 202 tests, ~4-5 min
+bun run test:sharded             # full suite; a bare `bun test` exhausts PGLite
 bun run src/cli.ts --help        # CLI surface
 ```

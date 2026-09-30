@@ -48,10 +48,12 @@ mcp:
   rate_limit_per_minute: 60
 
 # ---------------------------------------------------------------------------
-# Optional self-issued OAuth 2.1 (client_credentials). DEFAULT-OFF.
+# Self-issued OAuth 2.1 and personal access tokens. Off unless set here.
 # ---------------------------------------------------------------------------
-# Leave this block out (or `enabled: false`) and nothing changes — the single
-# static public bearer stays the only auth path. When enabled, memrain mounts a
+# A fresh `memrain init` writes a memrain.yml with this block enabled (only when
+# the config dir holds no overlay file yet). Leave it out (or
+# `enabled: false`) and the single static public bearer stays the only auth
+# path: tokens minted by `memrain auth create` / `register-client` are refused. When enabled, memrain mounts a
 # POST /token endpoint and verifies its own `memrain_at_…` tokens on the /mcp
 # ingress, scoping each request to the registered client's source set. No
 # external IdP — memrain IS the authorization server.

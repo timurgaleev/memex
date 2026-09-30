@@ -182,11 +182,35 @@ claude mcp add --transport http memrain https://<subdomain>.<domain>/mcp \
 <summary>Try it locally without AWS infra</summary>
 
 ```bash
-cd deploy/memrain && bun run src/cli.ts init --pglite
+cd deploy/memrain
+bun install --frozen-lockfile
+bun run src/cli.ts init --pglite
+bun run src/cli.ts sources register laptop --kind vault --path-prefix laptop/
+bun run src/cli.ts auth create laptop --source laptop --scopes read,write
+MEMRAIN_INTERNAL_TOKEN=$(openssl rand -hex 32) \
+  bun run src/cli.ts serve --http --port 18790
 ```
 
-This creates `~/.memrain` with an embedded PGLite database. Embeddings still call
-Bedrock, so you need AWS credentials with Titan access.
+The CLI runs as `bun run src/cli.ts`; a `memrain` command is on your PATH only
+after you link it yourself (for example with `bun link`).
+
+- `init` creates `~/.memrain` with an embedded PGLite database, a `config.json`
+  (Bedrock region `eu-west-1` by default; edit `embedding.region` to change it)
+  and a `memrain.yml` that turns on `auth.selfIssued`, which the server needs to
+  accept the tokens `auth create` and `auth register-client` mint.
+- Register the source before you create a token for it: `auth create --source`
+  refuses a source that does not exist.
+- Run the CLI commands before `serve`. PGLite is single-process, so while
+  `serve` holds the database open every other CLI command refuses to start.
+- Local requests arrive on the internal path. With `MEMRAIN_INTERNAL_TOKEN`
+  unset they are **not authenticated at all**: anyone who can reach the port
+  on this machine can read and write everything, and a bearer token you send
+  is ignored. The server binds to 127.0.0.1 by default; with `--host 0.0.0.0`
+  (or `MEMRAIN_HOST`) that means anyone on the network. Set `MEMRAIN_INTERNAL_TOKEN` as above and every request needs
+  either that token or a PAT, and a PAT is scoped to its source (`whoami`
+  shows it).
+- Embeddings call Bedrock (Titan). Without AWS credentials with Titan access,
+  writes still succeed but search returns nothing, not even keyword hits.
 
 </details>
 
@@ -200,7 +224,7 @@ OAuth. What the caller can do depends on the credential:
 
 | Credential | How you get it | What it unlocks |
 |---|---|---|
-| Personal access token | `memrain auth create <name> --source <src>` | One person or machine, writing to its own source, with an optional daily cap. |
+| Personal access token | `memrain sources register <src> ...`, then `memrain auth create <name> --source <src>` | One person or machine, writing to its own source, with an optional daily cap. |
 | OAuth 2.1 client | `memrain auth register-client ...` | Browser connectors (claude.ai, ChatGPT) and CLI sign-ins through `/authorize`, machine clients through client credentials, and enrollment mode for one connector shared by a team. |
 | Static public bearer | Auto-generated in Secrets Manager as `<prefix>/memrain-public-bearer` | No tenant. Read tools such as `search`, `page_get`, `backlinks` and graph/entity reads; no `code_*`, `think`, `query`, `get_chunks` or `volunteer_context`. A small set of writes only with `MEMRAIN_PUBLIC_WRITE=1`. |
 

@@ -67,8 +67,9 @@ AWS_PROFILE=<your-profile> aws ssm start-session \
 While the session runs, point Claude Code at `http://localhost:18790/mcp`. A
 request that arrives this way carries no `Cf-Connecting-Ip` header, so Memrain
 treats it as an internal peer: every call, read or write, needs
-`Authorization: Bearer <MEMRAIN_INTERNAL_TOKEN>` (or a personal access token,
-which is verified on this path too):
+`Authorization: Bearer <MEMRAIN_INTERNAL_TOKEN>`. A personal access token is
+accepted on this path only when `auth.selfIssued.enabled: true` is set in
+`memrain.yml`; with it off, anything but the internal token gets a 401:
 
 ```bash
 claude mcp add --transport http --scope user memrain http://localhost:18790/mcp \

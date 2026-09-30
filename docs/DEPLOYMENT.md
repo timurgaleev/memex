@@ -291,6 +291,16 @@ aws ssm start-session --target <instance-id> \
 
 ---
 
+### Self-issued auth after a config reset
+
+The first boot runs `memrain init --postgres` on an empty config volume and
+writes `memrain.yml` with `auth.selfIssued.enabled: true`. The database keeps
+its OAuth clients and personal access tokens across a volume reset, so
+recreating or wiping the config volume turns every client and token that is
+still valid in the database back on. Revoked and expired ones stay dead.
+Before resetting the volume, list what is live with `memrain auth
+list-clients` and `memrain auth list`, and revoke anything you no longer want.
+
 ## 7. Index your first content
 
 The container mounts your content read-only at `/memory`
