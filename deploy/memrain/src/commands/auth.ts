@@ -80,7 +80,15 @@
 import { createHash, randomBytes } from "node:crypto";
 import { Storage } from "../core/storage.ts";
 import { withStorage } from "./with-storage.ts";
-import { loadConfig } from "../core/config.ts";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import {
+  defaultConfigPath,
+  defaultYamlPath,
+  loadConfig,
+  YAML_NAME,
+  type Config,
+} from "../core/config.ts";
 import { patNameSpendConflict } from "../core/budget.ts";
 import {
   OAuthProvider,
@@ -196,6 +204,27 @@ export function parseBoolFlag(name: string, raw: string | undefined): boolean {
   throw new Error(`--${name} is a boolean flag, got '${raw}'`);
 }
 
+/**
+ * The stderr warning for minting a credential the server will not accept:
+ * `serve` verifies PATs and OAuth clients only with self-issued auth on.
+ */
+export function selfIssuedOffWarning(config: Config, configPath: string): string | null {
+  if (config.auth?.selfIssued?.enabled === true) return null;
+  // Name the overlay that is actually read; a legacy overlay stays the one to edit.
+  const read = defaultYamlPath(configPath);
+  const yamlPath = existsSync(read) ? read : join(dirname(configPath), YAML_NAME);
+  return (
+    `[memrain] warning: auth.selfIssued is off, so tokens will not be accepted until ` +
+    `auth.selfIssued.enabled: true is set in ${yamlPath}`
+  );
+}
+
+function warnIfSelfIssuedOff(): void {
+  const configPath = defaultConfigPath();
+  const warning = selfIssuedOffWarning(loadConfig(configPath), configPath);
+  if (warning) console.error(warning);
+}
+
 async function withProvider<T>(
   fn: (provider: OAuthProvider, storage: Storage) => Promise<T>,
 ): Promise<T> {
@@ -253,6 +282,7 @@ async function registerClient(name: string, rest: string[]): Promise<void> {
     );
   }
 
+  warnIfSelfIssuedOff();
   const { clientId, clientSecret } = await withProvider((p) =>
     p.registerClientManual(
       name,
@@ -651,6 +681,7 @@ async function createToken(name: string, rest: string[]): Promise<void> {
     .map((s) => s.trim())
     .filter(Boolean);
   const takesHolders = parsedHolders.length > 0 ? parsedHolders : ["world"];
+  warnIfSelfIssuedOff();
   const token = "memrain_" + randomBytes(32).toString("hex");
   const tokenHash = createHash("sha256").update(token, "utf8").digest("hex");
 

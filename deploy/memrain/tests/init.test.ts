@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { runInit } from "../src/commands/init.ts";
 import { loadConfig, defaultConfigPath } from "../src/core/config.ts";
-import { mkdtempSync, rmSync, statSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, existsSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -59,5 +59,54 @@ test("defaultConfigPath returns ~/.memrain/config.json on a fresh home", () => {
     expect(defaultConfigPath({}, home)).toBe(join(home, ".memrain", "config.json"));
   } finally {
     rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("fresh init writes memrain.yml (0600) with self-issued auth on", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "tb-init-"));
+  try {
+    await runInit({ pglite: true, configDir: dir });
+    const yml = join(dir, "memrain.yml");
+    expect(existsSync(yml)).toBe(true);
+    expect(statSync(yml).mode & 0o777).toBe(0o600);
+    expect(loadConfig(join(dir, "config.json")).auth?.selfIssued?.enabled).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init does not write memrain.yml when config.json already exists", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "tb-init-"));
+  try {
+    await runInit({ pglite: true, configDir: dir });
+    rmSync(join(dir, "memrain.yml"));
+    await runInit({ pglite: true, configDir: dir });
+    expect(existsSync(join(dir, "memrain.yml"))).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("fresh init keeps an existing memrain.yml untouched", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "tb-init-"));
+  try {
+    const yml = join(dir, "memrain.yml");
+    writeFileSync(yml, "mcp:\n  enabled: true\n");
+    await runInit({ pglite: true, configDir: dir });
+    expect(readFileSync(yml, "utf8")).toBe("mcp:\n  enabled: true\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("fresh init does not shadow a legacy memex.yml", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "tb-init-"));
+  try {
+    writeFileSync(join(dir, "memex.yml"), "auth:\n  selfIssued:\n    enabled: false\n");
+    await runInit({ pglite: true, configDir: dir });
+    expect(existsSync(join(dir, "memrain.yml"))).toBe(false);
+    expect(loadConfig(join(dir, "config.json")).auth?.selfIssued?.enabled).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

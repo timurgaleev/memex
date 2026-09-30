@@ -124,6 +124,7 @@ deploy/memrain/tests/agent_tenant.test.ts|COMPAT-TEST|1|incidental: pre-rename t
 deploy/memrain/tests/agent_tools_allowlist.test.ts|COMPAT-TEST|2|incidental: pre-rename name in comments, test data or temp-dir prefixes; no legacy behaviour under test
 deploy/memrain/tests/audit_week_file.test.ts|COMPAT-TEST|1|incidental: pre-rename temp-dir prefix only; no legacy behaviour under test
 deploy/memrain/tests/auth_pat.test.ts|COMPAT-TEST|3|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
+deploy/memrain/tests/auth_self_issued_warning.test.ts|COMPAT-TEST|3|covers legacy names or legacy data (the warning names a legacy overlay when that is the one read)
 deploy/memrain/tests/auth_rescope_fence.test.ts|COMPAT-TEST|4|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
 deploy/memrain/tests/auth_test_smoke.test.ts|COMPAT-TEST|1|incidental: pre-rename name in comments, test data or temp-dir prefixes; no legacy behaviour under test
 deploy/memrain/tests/backlinks.test.ts|COMPAT-TEST|1|incidental: pre-rename temp-dir prefix only; no legacy behaviour under test
@@ -260,7 +261,7 @@ deploy/memrain/tests/indexer_size_cap.test.ts|COMPAT-TEST|2|incidental: pre-rena
 deploy/memrain/tests/indexer_source_path_normalize.test.ts|COMPAT-TEST|5|incidental: pre-rename name in comments, test data or temp-dir prefixes; no legacy behaviour under test
 deploy/memrain/tests/ingest_headers.test.ts|COMPAT-TEST|5|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
 deploy/memrain/tests/ingest_log.test.ts|COMPAT-TEST|1|incidental: pre-rename temp-dir prefix only; no legacy behaviour under test
-deploy/memrain/tests/init.test.ts|COMPAT-TEST|3|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
+deploy/memrain/tests/init.test.ts|COMPAT-TEST|4|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
 deploy/memrain/tests/init_no_rewrite.test.ts|COMPAT-TEST|5|covers legacy names or legacy data (may also carry incidental pre-rename test strings)
 deploy/memrain/tests/insights.test.ts|COMPAT-TEST|1|incidental: pre-rename temp-dir prefix only; no legacy behaviour under test
 deploy/memrain/tests/jobs.test.ts|COMPAT-TEST|1|incidental: pre-rename temp-dir prefix only; no legacy behaviour under test

@@ -2,7 +2,9 @@
  * `memrain init [--pglite]` — bootstraps a fresh memrain instance.
  *
  * Creates the config dir (mode 0700; see `resolveConfigDir`), writes
- * config.json, opens the PGLite database, and applies initial migrations.
+ * config.json (plus a memrain.yml overlay turning on self-issued auth when the
+ * directory holds no overlay yet), opens the PGLite database, and applies
+ * initial migrations.
  * Idempotent: if config.json already exists, prints a notice and exits 0
  * without touching anything.
  */
@@ -25,6 +27,8 @@ import {
   configPathOverride,
   defaultConfigPath,
   LEGACY_CONFIG_DIR_NAME,
+  LEGACY_YAML_NAME,
+  YAML_NAME,
   type Config,
 } from "../core/config.ts";
 import { requirePostgres } from "../core/engine/factory.ts";
@@ -55,6 +59,36 @@ function seedTemplates(configDir: string): string[] {
     written.push(target);
   }
   return written;
+}
+
+/** The overlay a fresh install starts with: self-issued auth on, so the
+ *  tokens `memrain auth create` and `auth register-client` mint are accepted. */
+export const FRESH_YAML = `# memrain.yml — runtime overlay written by \`memrain init\` on a fresh install.
+# See memrain.yml.example for every option. Self-issued auth is on so the
+# personal access tokens and OAuth clients minted by \`memrain auth\` work.
+auth:
+  selfIssued:
+    enabled: true
+`;
+
+/**
+ * Write memrain.yml for a fresh install, unless an overlay already sits in the
+ * directory: a new memrain.yml would shadow the legacy overlay. Returns the
+ * path written, or null.
+ */
+export function seedFreshYaml(configDir: string): string | null {
+  const target = join(configDir, YAML_NAME);
+  if (existsSync(join(configDir, LEGACY_YAML_NAME))) return null;
+  // "wx" creates the file or fails if anything (a file or a symlink) already
+  // holds the name, so the check and the write cannot race.
+  try {
+    writeFileSync(target, FRESH_YAML, { mode: 0o600, flag: "wx" });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") return null;
+    throw e;
+  }
+  chmodSync(target, 0o600);
+  return target;
 }
 
 export interface InitOptions {
@@ -176,6 +210,7 @@ export async function runInit(opts: InitOptions): Promise<void> {
     storage: {},
   } as Config;
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  const yamlWritten = seedFreshYaml(configDir);
 
   let migrationsLine = "deferred to serve boot (postgres)";
   if (!opts.postgres) {
@@ -207,6 +242,7 @@ export async function runInit(opts: InitOptions): Promise<void> {
 
   console.log(`[memrain] initialized:`);
   console.log(`  config:     ${configPath}`);
+  if (yamlWritten) console.log(`  overlay:    ${yamlWritten} (auth.selfIssued.enabled: true)`);
   console.log(`  db:         ${opts.postgres ? "postgres (URL from MEMRAIN_POSTGRES_URL env)" : dbPath}`);
   console.log(`  migrations: ${migrationsLine}`);
   if (seeded.length > 0) {

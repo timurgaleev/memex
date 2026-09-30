@@ -321,8 +321,10 @@ USE_SSH_DEPLOY_KEY=${USE_SSH_DEPLOY_KEY}
 # index/log_friction calls. Pair with daily bearer rotation.
 MEMRAIN_PUBLIC_WRITE=0
 
-# Default EFS mount path on the host (used by docker-compose volume binds).
+# Default EFS paths on the host (used by docker-compose volume binds); the same
+# layout scripts/bootstrap.sh mounts and clones.
 EFS_MOUNT=/mnt/${PROJECT_NAME}-efs/${PROJECT_NAME}
+EFS_REPO=/mnt/${PROJECT_NAME}-efs/${PROJECT_NAME}-repo
 
 ${TIER_BLOCK}
 "
