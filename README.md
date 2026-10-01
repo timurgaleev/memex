@@ -24,7 +24,7 @@ turn on the paid features. **To start, follow [docs/QUICKSTART.md](./docs/QUICKS
 - **Your knowledge is scattered.** Decisions sit in notes, the reasons in old chats, the details in code.
 - **Answers without sources are guesses.** You cannot check an answer that does not say where it came from.
 
-Memrain reads all of it once, keeps it up to date, and lets every agent you use
+Memrain reads all of it, stores it in one place, and lets every agent you use
 search it. Each result points to the exact page it came from.
 
 ## What you get

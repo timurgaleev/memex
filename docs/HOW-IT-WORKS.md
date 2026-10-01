@@ -155,7 +155,8 @@ against that same client. See
 
 Memrain is deliberately small: **one Docker container on one EC2 instance**, an
 **RDS Postgres** for the index, an **EFS** mount for config that survives rebuilds,
-and **AWS Secrets Manager** for the tokens. The public surface is `POST /mcp`,
+and **AWS Secrets Manager** for the tokens. The public surface is `POST /mcp`, the
+authenticated `POST /ingest`,
 `GET /health`, the OAuth discovery and flow endpoints, and `/admin` (behind
 its own sign-in), reached through a **Cloudflare Tunnel** — no load balancer, no
 extra AWS ingress. (If you'd rather not depend on Cloudflare, the Caddy ingress

@@ -33,6 +33,18 @@ git clone https://github.com/<your-github-username>/memrain.git && cd memrain
 make init
 ```
 
+`make init` does not ask about everything. Set these in
+`terraform/terraform.tfvars` yourself when they apply:
+
+- a region other than `eu-west-1`: `availability_zone` and
+  `multi_az_subnet_cidrs` must name that region's zones;
+- Caddy instead of Cloudflare: `ingress_mode = "caddy"` (and
+  `caddy_manage_dns = false` if the domain's zone is not in Route53 here);
+- a private fork: `make apply` creates an empty `<prefix>/github-deploy-key`
+  secret and boots the host at once. Fill the secret as soon as it exists, or
+  re-run bootstrap afterwards (see [DEPLOYMENT.md](./DEPLOYMENT.md) steps 4
+  and 6).
+
 **3. Plan** (runs the audit gate and `terraform init`)
 
 ```bash
@@ -70,9 +82,8 @@ Without it every Claude call fails.
 - copy your markdown to `/mnt/<project>-efs/<project>/workspace/memory` on the
   host (it is `/memory` inside the container), then index it in an SSM session
   with the command below; or
-- write notes through MCP with `page_put`, using a personal access token or an
-  OAuth client with write scope. The public bearer from step 9 cannot write by
-  default.
+- or, once your agent is connected (step 9), have it save notes with
+  `page_put`.
 
 Details are in [DEPLOYMENT.md](./DEPLOYMENT.md) section 7.
 
@@ -86,17 +97,20 @@ sudo docker exec deploy-memrain-1 bun run src/cli.ts reindex --source vault --va
 curl -s https://<subdomain>.<domain>/health
 ```
 
-**9. Connect your agent.** `<token>` is the auto-generated public bearer, which
-is limited to read tools (see the credential table below; use a PAT or OAuth
-client for more):
+**9. Connect your agent.** Mint a personal access token for yourself on the
+host (it is printed once; without `--source` it writes to `default`, the
+operator's space), then add the server to your agent:
 
 ```bash
-aws secretsmanager get-secret-value --profile <your-profile> --region <your-region> \
-  --secret-id <prefix>/memrain-public-bearer \
-  --query SecretString --output text
-claude mcp add --transport http memrain https://<subdomain>.<domain>/mcp \
-  --header "Authorization: Bearer <token>"
+sudo docker exec deploy-memrain-1 bun run src/cli.ts auth create my-laptop
+claude mcp add --transport http --scope user memrain https://<subdomain>.<domain>/mcp \
+  --header "Authorization: Bearer <PAT>"
 ```
+
+Use this token, not the auto-generated public bearer: the public bearer is
+read-only and, by default, hides note bodies, so searches through it return no
+passages. For other people and other clients, see the credential table below
+and [clients/](./clients/).
 
 ## Try it locally
 

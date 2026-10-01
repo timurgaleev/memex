@@ -13,7 +13,7 @@
 <text x="428" y="182" text-anchor="middle" font-size="21" font-weight="700" fill="#EEF1F3">Memrain</text>
 <text x="428" y="208" text-anchor="middle" font-size="21" font-weight="700" fill="#EEF1F3">reads them</text>
 <text x="428" y="246" text-anchor="middle" font-size="15" fill="#A9B3BA">split into passages,</text>
-<text x="428" y="270" text-anchor="middle" font-size="15" fill="#A9B3BA">embedded once</text>
+<text x="428" y="270" text-anchor="middle" font-size="15" fill="#A9B3BA">embedded for search</text>
 <path d="M550 195 h26" stroke="#F08A72" stroke-width="3" fill="none"/><path d="M574 188 l9 7 l-9 7" stroke="#F08A72" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 <rect x="584" y="90" width="232" height="210" rx="16" fill="#1F262D" stroke="#323C45" stroke-width="2"/>
 <circle cx="700" cy="130" r="16" fill="#F08A72"/><text x="700" y="136" text-anchor="middle" font-size="16" font-weight="700" fill="#FFFFFF">3</text>
