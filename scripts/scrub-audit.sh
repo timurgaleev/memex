@@ -120,7 +120,7 @@ while IFS='|' read -r pattern severity category description; do
   pattern="${pattern%"${pattern##*[![:space:]]}"}"
   [ -z "$pattern" ] && continue
 
-  matches="$(grep -EnH "$pattern" "${SCAN_FILES[@]}" 2>/dev/null || true)"
+  matches="$(grep -EInH "$pattern" "${SCAN_FILES[@]}" 2>/dev/null || true)"
   [ -z "$matches" ] && continue
 
   count=$(printf '%s\n' "$matches" | wc -l | tr -d ' ')
