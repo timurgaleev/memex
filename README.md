@@ -2,279 +2,84 @@
 
 # Memrain
 
-Memrain is a self-hosted memory server for your AI agents. It indexes your markdown
-notes and your code (TypeScript, Python, Go, Bash, SQL), and it answers any MCP
-client with cited evidence from hybrid vector + keyword + entity-graph search.
+**Long-term memory for your AI agents.**<br>
+Your notes, decisions and code, searchable from Claude, ChatGPT and Codex, with the source attached to every answer.
 
-<img src="docs/assets/hero.jpg" alt="Scattered note and code cards drift in from the left and settle into one connected knowledge graph, which sends cited answers to three waiting agent terminals on the right." width="100%">
+<img src="docs/assets/hero.webp" alt="Notes, a code file, a chat bubble and a sticky note flow into one filing cabinet, which feeds answers to three laptops." width="100%">
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
-![Bun >= 1.3.10](https://img.shields.io/badge/bun-%3E%3D1.3.10-F472B6?style=flat-square)
-![MCP-native](https://img.shields.io/badge/interface-MCP-6AA9FF?style=flat-square)
-![Self-hosted](https://img.shields.io/badge/runs%20in-your%20AWS%20account-34D3A6?style=flat-square)
+![MCP-native](https://img.shields.io/badge/works%20with-any%20MCP%20client-E8735A?style=flat-square)
+![Self-hosted](https://img.shields.io/badge/runs%20in-your%20AWS%20account-5B6770?style=flat-square)
 
 </div>
 
-Your notes, index and database stay in your AWS account. Only what an agent
-retrieves goes to that agent's model.
+**For developers and small teams who work with AI agents every day.** Memrain is
+free and open source (MIT). It runs in your own AWS account, so you pay only your
+AWS bill: about $52 a month for the server and database, plus model usage if you
+turn on the paid features.
+
+## Why
+
+- **Your agent forgets.** Every new chat starts from zero, so you paste the same context again and again.
+- **Your knowledge is scattered.** Decisions sit in notes, the reasons in old chats, the details in code.
+- **Answers without sources are guesses.** You cannot check an answer that does not say where it came from.
+
+Memrain reads all of it once, keeps it up to date, and lets every agent you use
+search it. Each result points to the exact page it came from.
+
+## What you get
+
+| | |
+|---|---|
+| <img src="docs/assets/feature-memory.webp" alt="An answer card linked by a thread to the highlighted line of the note it came from." width="260"> | **Answers you can check.** Ask "what did we decide about the auth flow?" and get the passages from your own notes, each with its page and line. Your agent writes the answer; Memrain supplies the evidence. |
+| <img src="docs/assets/feature-code.webp" alt="One highlighted function in a code file, with lines fanning out to the files that call it." width="260"> | **It understands your code.** Who calls this function, what breaks if I change it, where is it defined: for TypeScript, Python and Go. Bash and SQL files are searchable too. |
+| <img src="docs/assets/feature-team.webp" alt="One filing cabinet with three locked drawers in different colours, each with its own key." width="260"> | **One memory for the team, a private space for each person.** One connector for everybody, a separate source per person, a daily spending cap, and access you can revoke one person at a time. |
+
+It also keeps facts and timelines, imports your ChatGPT and Claude history,
+keeps a version history for every page, and redacts API keys and passwords
+before anything is stored.
 
 ## See it work
 
 <div align="center">
-  <img src="docs/assets/demo.svg" alt="An agent asks what was decided about an approach, Memrain search returns cited chunks from the operator's own notes, and the agent answers from them." width="720">
+  <img src="docs/assets/demo.svg" alt="An agent asks what was decided about an approach; Memrain returns cited passages from the owner's notes, and the agent answers from them." width="720">
 </div>
-
-Connect once, then ask in plain words. Memrain returns the evidence, cited to the
-exact page. Your agent writes the answer.
-
-```bash
-claude mcp add --transport http memrain https://<subdomain>.<domain>/mcp \
-  --header "Authorization: Bearer <token>"
-```
-
-<details>
-<summary>See a full search with <code>--explain</code></summary>
-
-On the host, the CLI runs the same retrieval the MCP `search` tool does, and
-`--explain` stamps per-signal ranking attribution on every hit:
-
-```bash
-docker exec deploy-memrain-1 bun run src/cli.ts search "<query>" --k 5 --explain
-```
-
-</details>
-
-## What you get
-
-You write notes, decisions and code, and six months later neither you nor your
-agent can find them. Memrain reads all of it once, keeps it searchable, and hands
-that search to every MCP client you use, with the source attached.
-
-<img src="docs/assets/feature-tiles.jpg" alt="Three tiles: a note under a magnifying lens with one cited line highlighted, a code call graph fanning out from one function, and a shield with a key guarding three separate per-person compartments." width="100%">
-
-| What you get | Why it matters |
-|---|---|
-| **Hybrid search** | Vector and keyword arms fused with Reciprocal Rank Fusion. With the runtime defaults, a search makes one Titan embed call and no chat-model call. |
-| **Code intelligence** | `code_callers`, `code_callees`, `code_def`, `code_refs`, `code_blast` (transitive callers, depth 5 by default, max 8) and `code_flow`, over TS/TSX, Python and Go. |
-| **Push context** | `volunteer_context` surfaces relevant pages and `volunteer_chronicle` the recent timeline for the entities in play, before you ask. Both are deterministic, with no LLM call. |
-| **Facts, timelines, history** | `add_fact` / `recall` / `find_trajectory`, the `chronicle_*` tools, and `page_versions` / `page_revert` for every page. |
-| **Chats and agent sessions** | `memrain transcripts ingest` imports ChatGPT and Claude.ai exports, Codex CLI rollouts and Claude Code session logs, keeping what was said and redacting credentials. |
-| **Safe writes** | `request_id` makes a retried write replay instead of landing twice; `expected_version` lets exactly one of two racing writers commit. |
-| **Team-ready** | One connector for a team, a separate source per person through single-use enrollment codes, and daily USD caps per OAuth client, per PAT and per person. One person can be revoked or re-enrolled without touching the others. |
-| **Secrets redacted on write** | Pasted AWS keys, API tokens and PEM keys become `[REDACTED:<kind>:<fingerprint>]` before they are stored or embedded. |
-| **Your infra** | One Graviton `t4g.medium` instance and encrypted RDS Postgres 16, all in Terraform. Zero telemetry. |
-
-Every MCP tool is declared once in [deploy/memrain/src/mcp/operations.ts](./deploy/memrain/src/mcp/operations.ts); `tools/list` returns them with their schemas and `annotations` (`readOnlyHint`, and `destructiveHint` / `idempotentHint` on the writes), so a client can ask before it writes.
-
-**When Memrain is not the right fit**
-
-- You do not want to run an AWS account.
-- You want a hosted service someone else operates.
-- You want a chat UI. Memrain retrieves; composing the answer is the MCP client's job.
 
 ## How it works
 
-Memrain indexes your content ahead of time and answers searches on demand. It
-returns ranked, cited chunks, never a generated answer, so the agent stays
-grounded in what you actually wrote.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/how-it-works-dark.svg">
+  <img src="docs/assets/how-it-works-light.svg" alt="Five steps: your notes, code and chats; Memrain reads them; stored in your Postgres database; search by meaning and by words; your AI agent answers with sources." width="100%">
+</picture>
 
-<img src="docs/assets/how-it-works.jpg" alt="One query splits into three lanes (vector similarity, keyword matching and an entity graph) that merge into a single ranked stack of results, with the best match highlighted." width="100%">
-
-<p align="center"><img src="docs/assets/architecture.svg" alt="Memrain turns your notes and code into a searchable brain that your AI agent reaches over MCP" width="760"></p>
-
-1. **Notes and code** come in from the markdown vault, indexed code roots, `page_put`, or `POST /ingest`.
-2. **Chunkers** split them. Code is parsed with tree-sitter WASM grammars.
-3. **Titan v2** on Bedrock turns each chunk into an embedding.
-4. **Postgres with pgvector** stores the vectors next to a keyword index and an entity graph.
-5. **Hybrid retrieval** fuses the arms (RRF), applies boosts, de-duplicates and optionally reranks.
-6. **Cited results** go back to the agent over `/mcp`.
-
-A maintenance cycle runs every 6 hours (the shipped compose file sets
-`MEMRAIN_DREAM_INTERVAL_S=21600`) to re-embed stale documents and keep the corpus tidy.
-
-Every paid LLM feature (`think`, rerank, LLM intent and query expansion) is off
-in the runtime code. `scripts/init.sh` opts a new install into a quality tier:
-`max` by default, or `MEMRAIN_INIT_TIER=free|balanced|max`. The tier flags land
-only in your local `.env`: on a Terraform install bootstrap renders the host's
-`/opt/<project>/.env` without them, so the live stack runs `free` until you
-append the tier block to that file by hand (and again after any bootstrap
-re-run, which rewrites it) and redeploy. The cost model is in
+Memrain does the remembering, not the talking. It returns ranked passages with
+their sources, and your agent writes the answer from them. A search costs one
+embedding call and no chat-model call by default. The full pipeline is in
 [docs/HOW-IT-WORKS.md](./docs/HOW-IT-WORKS.md).
 
-<details>
-<summary>Request path in detail</summary>
+## Get started
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor You
-    participant Agent as Your AI agent
-    participant memrain as Memrain (MCP)
-    participant DB as Postgres + pgvector
-    You->>Agent: "What did I decide about X?"
-    Agent->>memrain: tools/call search { q }
-    memrain->>DB: vector + keyword + graph query
-    DB-->>memrain: top chunks, ranked (RRF)
-    memrain-->>Agent: cited chunks (evidence, not an answer)
-    Agent-->>You: answer, grounded in your own notes
-```
-
-</details>
-
-## Quickstart (recommended: Terraform)
-
-You need an **AWS account with Bedrock access**, **Terraform >= 1.6**, the
-**AWS CLI**, an **existing S3 bucket for Terraform state** (create it by hand;
-`terraform init` fails without it), and a **domain on Cloudflare** (or
-`ingress_mode = "caddy"`, which needs the domain's Route53 public hosted zone
-in this account, or `caddy_manage_dns = false` plus an A record to the instance
-EIP that you create yourself). Docker is not needed locally; bootstrap installs
-it on the host.
-
-**1. Fork and clone the repo.** Fork it to your GitHub account and keep the
-fork public (for a private fork, answer `true` to the SSH deploy key prompt in
-`make init` and set `repo_url` in `terraform/terraform.tfvars` to
-`git@github.com:<owner>/<repo>.git`): the instance clones `<owner>/<repo>` from the answers you give
-`make init` over anonymous HTTPS, and first boot fails if that repo is missing.
+**Self-host (free).** You need an AWS account with Bedrock access, Terraform, the
+AWS CLI and a domain on Cloudflare. Then:
 
 ```bash
 git clone https://github.com/<your-github-username>/memrain.git && cd memrain
+make init      # answers a few questions and writes your config
+make plan && make apply
 ```
 
-**2. Write your config** (`.env`, `terraform/terraform.tfvars`, `terraform/backend.hcl`)
+The full walkthrough, from the tunnel token to your first search, is in
+[docs/QUICKSTART.md](./docs/QUICKSTART.md).
 
-```bash
-make init
-```
+**Try it on your laptop.** No servers, one embedded database. You still need AWS
+credentials for the embeddings. See "Try it locally" in
+[docs/QUICKSTART.md](./docs/QUICKSTART.md).
 
-**3. Plan** (runs the audit gate and `terraform init`)
+**Hosted.** A hosted version, so you do not have to run AWS yourself, is planned.
 
-```bash
-make plan
-```
+## Connect your agent
 
-**4. Apply** (does not run `terraform init`, so plan first)
-
-```bash
-make apply
-```
-
-**5. Cloudflare mode: give the tunnel its token**, then create the tunnel route
-to the service in the Cloudflare dashboard.
-
-```bash
-aws secretsmanager put-secret-value --profile <your-profile> --region <your-region> \
-  --secret-id <prefix>/cloudflared-tunnel-token --secret-string '<tunnel-token>'
-```
-
-The host fetched secrets at first boot, before the token existed, so pull it
-again and recreate the tunnel container (in an SSM session on the host):
-
-```bash
-cd /opt/<project>
-sudo bash deploy/secrets/fetch-secrets.sh
-sudo docker compose --env-file .env up -d cloudflared
-```
-
-**6. Submit the Bedrock Anthropic use-case form** once in the AWS console.
-Without it every Claude call fails.
-
-**7. Index your vault** (in an SSM session on the host). `/memory` is the EFS
-`workspace/memory` tree, empty on a fresh install: copy your markdown to
-`/mnt/<project>-efs/<project>/workspace/memory` on the host first, or write
-through MCP with `page_put` using a PAT or OAuth client with write scope (the
-public bearer from step 9 cannot write by default) (see
-[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) section 7).
-
-```bash
-sudo docker exec deploy-memrain-1 bun run src/cli.ts reindex --source vault --vault /memory
-```
-
-**8. Check health** (expect `{"ok":true,"db":...,"version":...}`)
-
-```bash
-curl -s https://<subdomain>.<domain>/health
-```
-
-**9. Connect your agent.** `<token>` is the auto-generated public bearer, which
-is limited to read tools (see the credential table below; use a PAT or OAuth
-client for more):
-
-```bash
-aws secretsmanager get-secret-value --profile <your-profile> --region <your-region> \
-  --secret-id <prefix>/memrain-public-bearer \
-  --query SecretString --output text
-claude mcp add --transport http memrain https://<subdomain>.<domain>/mcp \
-  --header "Authorization: Bearer <token>"
-```
-
-<details>
-<summary>Try it locally (no servers; needs AWS credentials with Bedrock Titan access)</summary>
-
-```bash
-cd deploy/memrain
-bun install --frozen-lockfile
-bun run src/cli.ts init --pglite
-bun run src/cli.ts sources register laptop --kind vault --path-prefix /abs/path/to/notes
-bun run src/cli.ts reindex --source vault --vault /abs/path/to/notes
-bun run src/cli.ts auth create laptop --source laptop --scopes read,write
-MEMRAIN_INTERNAL_TOKEN=$(openssl rand -hex 32) \
-  bun run src/cli.ts serve --http --port 18790
-```
-
-Then connect your agent to the local server with the PAT `auth create` printed,
-and call `whoami` to check it:
-
-```bash
-claude mcp add --transport http memrain http://127.0.0.1:18790/mcp \
-  --header "Authorization: Bearer <PAT from auth create>"
-```
-
-The CLI runs as `bun run src/cli.ts`; a `memrain` command is on your PATH only
-after you link it yourself (for example with `bun link`).
-
-- `init` creates `~/.memrain` with an embedded PGLite database, a `config.json`
-  and a `memrain.yml` that turns on `auth.selfIssued`, which the server needs to
-  accept the tokens `auth create` and `auth register-client` mint.
-- The Bedrock region comes from `AWS_REGION`, or `eu-west-1` when it is unset;
-  set it before running the CLI or `serve` to change it.
-- Register the source before you create a token for it: `auth create --source`
-  refuses a source that does not exist.
-- `--path-prefix` is a filesystem path: files indexed from under it belong to
-  that source, which is what makes imported notes visible to the source's PAT.
-  Notes you write later through MCP `page_put` with that PAT land in its source
-  too.
-- Run the CLI commands before `serve`. PGLite is single-process, so while
-  `serve` holds the database open every other CLI command refuses to start.
-- Local requests arrive on the internal path. With `MEMRAIN_INTERNAL_TOKEN`
-  unset they are **not authenticated at all**: anyone who can reach the port
-  on this machine can read and write everything, and a bearer token you send
-  is ignored. The server binds to 127.0.0.1 by default; with `--host 0.0.0.0`
-  (or `MEMRAIN_HOST`) that means anyone on the network. Set `MEMRAIN_INTERNAL_TOKEN` as above and every request needs
-  either that token or a PAT, and a PAT is scoped to its source (`whoami`
-  shows it).
-- Embeddings call Bedrock (Titan), and a note is embedded before it is written.
-  Without AWS credentials with Titan access, `index` and `reindex` fail on every
-  file and nothing becomes searchable.
-
-</details>
-
-Everything else (Caddy ingress, secrets, updates, verification) is in
-[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md).
-
-## Connect your agent and pick a credential
-
-Every client connects to the same `/mcp` URL, with a bearer token or through
-OAuth. What the caller can do depends on the credential:
-
-| Credential | How you get it | What it unlocks |
-|---|---|---|
-| Personal access token | `memrain sources register <src> ...`, then `memrain auth create <name> --source <src>` | One person or machine, writing to its own source, with an optional daily cap. |
-| OAuth 2.1 client | `memrain auth register-client ...` | Browser connectors (claude.ai, ChatGPT) and CLI sign-ins through `/authorize`, machine clients through client credentials, and enrollment mode for one connector shared by a team. |
-| Static public bearer | Auto-generated in Secrets Manager as `<prefix>/memrain-public-bearer` | No tenant. Read tools such as `search`, `page_get`, `backlinks` and graph/entity reads; no `code_*`, `think`, `query`, `get_chunks` or `volunteer_context`. A small set of writes only with `MEMRAIN_PUBLIC_WRITE=1`. |
-
-Run the `whoami` tool to see the scopes, write source and read sources of the
-credential you are using. Step-by-step guides, each with a troubleshooting table:
+Every client uses the same `https://<your-host>/mcp` address.
 
 | Client | Guide |
 |---|---|
@@ -282,77 +87,39 @@ credential you are using. Step-by-step guides, each with a troubleshooting table
 | Codex CLI | [docs/clients/CODEX.md](./docs/clients/CODEX.md) |
 | claude.ai (Pro, Max) | [docs/clients/CLAUDE_AI.md](./docs/clients/CLAUDE_AI.md) |
 | Claude Team, Enterprise | [docs/clients/CLAUDE_TEAM.md](./docs/clients/CLAUDE_TEAM.md) |
-| ChatGPT (developer mode, workspace apps) | [docs/clients/CHATGPT.md](./docs/clients/CHATGPT.md) |
+| ChatGPT | [docs/clients/CHATGPT.md](./docs/clients/CHATGPT.md) |
 
-## Deploy and operate
+## Security and privacy
 
-- **Ingress.** The default is a Cloudflare Tunnel with no inbound ports.
-  `ingress_mode = "caddy"` serves Let's Encrypt TLS on 80/443 instead.
-- **Access.** Reach the host through SSM (`aws ssm start-session --target <instance-id>`). No SSH.
-- **Update.** `cd /opt/<project> && sudo git pull --ff-only && sudo bash deploy/deploy.sh`. It
-  stamps the build, and `/health` must report the new stamp.
-- **Upgrading from before the rename.** See [UPGRADING.md](./UPGRADING.md); a
-  plain pull and deploy is not enough.
-- **Operate.** `memrain doctor`, `memrain spend --days 7` and the `/admin` panel.
-- **Optional units.** `deploy/systemd` ships a nightly eval probe and a bearer
-  rotation timer. Bootstrap installs neither, and the static public bearer is
-  meant to stay fixed; hand people PATs or OAuth clients instead.
+- **Your data stays in your AWS account.** Notes, index and database live there. Only what an agent retrieves goes to that agent's model. No telemetry.
+- **Secrets are stripped on the way in.** Pasted AWS keys, API tokens and private keys are redacted before they are stored or embedded.
+- **Every person has their own key.** Personal tokens and OAuth sign-in, scoped per person, each with an optional daily cap. Details in [docs/TEAM-SETUP.md](./docs/TEAM-SETUP.md).
 
-See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) and [docs/CONFIGURATION.md](./docs/CONFIGURATION.md).
+To report a vulnerability, see [SECURITY.md](./SECURITY.md).
 
-## Security and tenancy
+## When Memrain is not the right fit
 
-- Every route except `GET /health`, the OAuth metadata and flow endpoints and
-  `/admin` (which has its own sign-in) needs a credential. `/mcp` is the agent contract.
-- A built-in OAuth 2.1 server. Dynamic client registration is off unless
-  `MEMRAIN_ENABLE_DCR=1`, and then the server boots only with
-  `MEMRAIN_OAUTH_REQUIRE_LOGIN=1` (or the explicit `MEMRAIN_ENABLE_DCR_INSECURE=1`).
-- Enrollment codes are single-use, and only their SHA-256 is stored.
-- Credentials pasted into pages, facts, timeline entries, indexed files or
-  `/ingest` are redacted before storage by default
-  (`MEMRAIN_SECRET_SCAN_DISPOSITION=flag|reject` changes that).
-- For a capped caller, a paid call reserves its worst-case cost against the
-  daily cap under a lock before it is sent.
-- RDS is encrypted, deletion-protected and keeps a final snapshot. CloudTrail is
-  on by default. Zero telemetry.
-
-Details: [docs/TEAM-SETUP.md](./docs/TEAM-SETUP.md) and [SECURITY.md](./SECURITY.md).
+- You do not want to run anything in AWS. The hosted version is not available yet.
+- You want a chat app. Memrain is the memory behind your agent, not a chat window.
 
 ## Documentation
 
 | Doc | What is in it |
 |---|---|
-| [docs/HOW-IT-WORKS.md](./docs/HOW-IT-WORKS.md) | Retrieval pipeline, cost model, scoped credentials |
-| [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) | First install, tunnel or Caddy, updates, verification |
-| [docs/CONFIGURATION.md](./docs/CONFIGURATION.md) | Every env var, quality tiers, per-feature models and budgets |
-| [docs/TEAM-SETUP.md](./docs/TEAM-SETUP.md) | One connector for a team, enrollment, budgets |
-| [docs/clients/](./docs/clients/) | Connecting Claude Code, Codex, claude.ai, Claude Team and ChatGPT |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | Topology, containers, security model |
-| [CHANGELOG.md](./CHANGELOG.md) | Release history |
+| [docs/QUICKSTART.md](./docs/QUICKSTART.md) | Install, connect, credentials, day-to-day operation |
+| [docs/HOW-IT-WORKS.md](./docs/HOW-IT-WORKS.md) | How search works, what it costs |
+| [docs/TEAM-SETUP.md](./docs/TEAM-SETUP.md) | One connector for a team, a private space per person |
+| [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) | Every install and update step in detail |
+| [docs/CONFIGURATION.md](./docs/CONFIGURATION.md) | Every setting, quality tiers, budgets |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | What runs where, and the security model |
+| [UPGRADING.md](./UPGRADING.md) · [CHANGELOG.md](./CHANGELOG.md) | Upgrades and release history |
 
 ## Contributing
 
-Memrain is deliberately small, so open an issue before anything that adds
-infrastructure or changes the deploy story. Before sending a change, run the
-local gates:
-
-```bash
-make audit
-make scrub-audit
-make typecheck                          # src/ and tests/
-make test
-env -C deploy/memrain bun run test:sharded
-```
-
-Never run a bare full `bun test`: the embedded database runs out of memory
-mid-run and reports failures that are not real. See
-[CONTRIBUTING.md](./CONTRIBUTING.md).
-
-## Security
-
-Please do not open a public issue for a vulnerability. Report it privately as
-described in [SECURITY.md](./SECURITY.md).
+Issues and pull requests are welcome. Please open an issue before anything that
+adds infrastructure or changes how Memrain is deployed. The local checks and
+test commands are in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-[MIT](./LICENSE).
+[MIT](./LICENSE)
