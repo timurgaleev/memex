@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.5] — 2026-10-01
+
+### Changed
+- The README is now a short product page: what Memrain is, who it is for,
+  what it costs to run, and where to start. The install walkthrough moved to
+  `docs/QUICKSTART.md`.
+- New illustrations, and labelled "how it works" and architecture diagrams
+  with light and dark variants. The image assets shrank from about 630 KB to
+  about 130 KB.
+- Every guide opens with what you get and what you need. The quickstart now
+  connects your agent with a personal access token, because the public bearer
+  hides note bodies by default, and lists the settings `make init` does not
+  ask about (region, Caddy, private fork).
+- The privacy and security pages describe a self-hosted install that can
+  serve several people, and name Cloudflare in the request path when the
+  default tunnel is used.
+
+### Fixed
+- `make scrub-audit` no longer reports binary files whose bytes happen to
+  match a text pattern.
+
 ## [1.0.4] — 2026-09-30
 
 ### Fixed
