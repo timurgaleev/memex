@@ -1,5 +1,9 @@
 # Security Policy
 
+This policy covers the open-source Memrain software that you install and run
+yourself, in your own AWS account. A hosted offer, when it exists, will publish
+its own terms.
+
 ## Reporting a vulnerability
 
 Please **do not** open a public GitHub issue for security problems.
@@ -17,7 +21,8 @@ first message.
 
 ## Scope
 
-This repo describes a self-hostable single-user stack. Anything that
+This repo describes a self-hostable stack, single-operator by default, with
+optional per-person tenants. Anything that
 could let an unauthorized actor read or modify another deploy's data —
 even when both deploys are running on different AWS accounts — is in
 scope. Examples:

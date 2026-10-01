@@ -1,6 +1,14 @@
 # Configuration reference
 
-Every runtime knob Memrain reads is an environment variable prefixed `MEMRAIN_`.
+This page lists every setting you can change, what each one does, and which
+ones cost money. You need it when you want to turn a feature on or off or tune
+how Memrain behaves. The defaults work, so you do not need this page to get
+started: begin with [QUICKSTART.md](./QUICKSTART.md), and read
+[HOW-IT-WORKS.md](./HOW-IT-WORKS.md) to see what the settings control.
+
+Most runtime knobs are environment variables prefixed `MEMRAIN_`; deploy-level
+keys (secret names, `COMPOSE_FILE`) and Terraform variables are listed in their
+own sections below.
 An install from before the rename keeps working with its old names in 1.0.x;
 see [Legacy names](#legacy-names).
 This page is the authoritative list: each row gives the variable, its default,

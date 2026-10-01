@@ -1,8 +1,21 @@
 # Running Memrain for a team
 
-How to take a working single-operator brain and put several people on it, each
-with their own private space. Task-oriented; the knob-by-knob reference lives in
-[CONFIGURATION.md](./CONFIGURATION.md), the install in
+This page is for the person who runs Memrain and wants to put a team on it.
+You get:
+
+- **One connector for the whole team.** An Owner (Claude) or a workspace admin
+  (ChatGPT) adds it once; each person joins
+  with their own one-time code.
+- **A private space per person.** Each person writes to their own source. Set
+  `MEMRAIN_TENANT_FAIL_CLOSED=1` and read [Before you rely on this](#before-you-rely-on-this).
+- **A daily spending cap per person.** Set it with one command, in US dollars.
+- **Revoke one person without touching the others.** Everyone else keeps working.
+
+If each person on your plan can add their own connector, you can also give each
+of them a separate client. The first section helps you pick.
+
+This page walks through the steps. Every setting is listed in
+[CONFIGURATION.md](./CONFIGURATION.md), and the install is in
 [DEPLOYMENT.md](./DEPLOYMENT.md).
 
 Everything here assumes Memrain is already deployed and healthy. Per-client
@@ -218,7 +231,7 @@ the fastest way to confirm an enrollment did what you meant.
 | Person sees an admin login, not a code field | the client is in `client` mode with the login gate on | `rescope-client … --tenant-mode enrollment`, or take the gate off |
 | `That code was not accepted` | used, expired, revoked, or issued for another client — deliberately indistinguishable | `auth enrollments` shows which; re-issue |
 | Person lands in the wrong space | codes were swapped at handover | revoke, re-issue, hand over again |
-| `budget_exhausted` on search or think | the connector hit its daily ceiling | raise it, or wait for the UTC day to roll |
+| `budget_exhausted` on search or think | that person's daily cap is spent (their enrollment cap, or the connector's cap applied per person) | `set-budget <enrollment_id>`, or wait for the UTC day to roll |
 | Writes succeed but nothing is findable | budget ran out mid-index: the note is stored unembedded, on purpose | raise the cap, then `memrain embed` |
 
 ---

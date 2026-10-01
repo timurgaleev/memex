@@ -1,64 +1,68 @@
 # How Memrain works
 
-A plain-language tour of the whole system: what it is, how your knowledge gets
-in, how a question is answered, and — the question everyone asks — **where the
-money goes**. Every claim here is grounded in the code (`deploy/memrain/src`) and
-the other docs ([ARCHITECTURE.md](../ARCHITECTURE.md),
-[CONFIGURATION.md](./CONFIGURATION.md)).
+This page explains what Memrain does with your notes, how it answers a
+question, and what it costs to run. The first sections need no setup
+knowledge; the last ones are reference. For the setup
+itself, see [QUICKSTART.md](./QUICKSTART.md).
 
-## In one sentence
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/how-it-works-dark.svg">
+  <img src="assets/how-it-works-light.svg" alt="Five steps: your notes, code and chats; Memrain reads them; stored in your Postgres database; search by meaning and by words; your AI agent answers with sources." width="100%">
+</picture>
 
-Memrain is a **retrieval brain**, not a chatbot. It **finds the right things and
-proves them** (every hit comes with its source); the *answer* is written by your
-MCP client (Claude Code, etc.) from what Memrain returned. It remembers and finds;
-it does not talk.
+## In one minute
 
-## 1. How knowledge gets in
+Memrain is a memory, not a chatbot. It reads your notes, code and chat history,
+remembers them, and when your AI agent asks a question it hands back the most
+relevant passages, each with the page it came from. Your agent (Claude Code,
+ChatGPT, Codex and so on) writes the answer from that evidence. The one
+exception is the opt-in `think` tool, which writes a cited answer itself.
 
-You point Memrain at content — markdown notes, a code checkout, or anything pushed
-over MCP (mail, calendar, arbitrary documents). For each document it:
+## 1. How your knowledge gets in
 
-1. **Chunks** it into passages.
-2. Computes an **embedding** (a numeric "fingerprint" of meaning) for each chunk
-   with **Amazon Titan Text Embeddings v2** on Bedrock.
-3. Stores everything in **Postgres (RDS)** — the database is the single source of
-   truth, not the files on disk.
+You point Memrain at your content: a folder of markdown notes, a code checkout,
+or anything your agent saves through MCP. For each document it:
 
-Conversations come in the same way. `memrain transcripts ingest` reads ChatGPT and
-Claude.ai exports, Codex CLI rollouts (`~/.codex/sessions`) and Claude Code
+1. **Splits** it into short passages.
+2. **Embeds** each passage: Amazon Titan on Bedrock turns it into a list of
+   numbers that captures its meaning, so "car" can find "vehicle".
+3. **Stores** everything in Postgres in your AWS account. The database is the
+   record, not the files on disk.
+
+Chat history comes in the same way. `memrain transcripts ingest` reads ChatGPT
+and Claude.ai exports, Codex CLI rollouts (`~/.codex/sessions`) and Claude Code
 session logs (`~/.claude/projects`), one file or a whole directory. It keeps
 only what was said: tool calls and results, reasoning, sub-agent traffic and
 system reminders are dropped, credentials are redacted, and a long session is
-split into parts at message boundaries. Re-running it on unchanged input writes
-nothing.
+split into parts at message boundaries. Running it again on unchanged input
+writes nothing.
 
-## 2. How a question is answered (the pipeline)
+## 2. How a question is answered
 
-When your MCP client searches, Memrain runs a hybrid pipeline
-(`core/search/hybrid.ts`):
+When your agent searches, Memrain:
 
-1. **Classify intent** — a zero-LLM regex taxonomy works out what kind of
-   question it is (Claude Haiku only with `MEMRAIN_INTENT_LLM=1`).
-2. **Retrieve in parallel** — embed the query and search by *meaning* (vector) +
-   search by *words* (keyword), at the same time.
-3. **Expand the query** (opt-in, `MEMRAIN_QUERY_EXPANSION=1`) — Haiku adds
-   synonyms / related terms for extra keyword passes.
-4. **Fuse** the result lists (Reciprocal Rank Fusion).
-5. **Hydrate** the top hits with their parent document + source type.
-6. **Source-boost** and 7. **de-duplicate**.
-8. **Rerank** (optional) — a two-pass Claude Haiku rerank, or the paid
-   graph-aware Sonnet rerank, reorders the best hits.
-9. **Trim** to the top *k* and return them **with citations**.
+1. **Works out what kind of question it is** (about a person or thing, a time
+   span, an event, or general),
+   with simple rules and no model call by default.
+2. **Searches two ways at once**: by meaning, using the embedding of the
+   question, and by exact words.
+3. **Merges the two result lists** into one ranking, then favours the right
+   kind of source and removes near-duplicates.
+4. **Optionally reorders the top results** with a Claude model, if you turned
+   that on.
+5. **Returns the top passages, each with its source.**
 
-A default search makes one Titan embed call and no Claude call. Intent by
-LLM, query expansion and the Haiku rerank (`MEMRAIN_RERANK=1`) are opt-in; when
-on, they sharpen retrieval, they never write the answer.
+A default search makes one Titan embedding call and no Claude call. Asking a
+model to classify the question (`MEMRAIN_INTENT_LLM=1`), expanding the query
+with related words (`MEMRAIN_QUERY_EXPANSION=1`) and reranking
+(`MEMRAIN_RERANK=1`, or the paid Sonnet `MEMRAIN_GRAPH_RERANK=1`) are all
+opt-in. When they are on, they improve which passages come back. They never
+write the answer. The code is in `deploy/memrain/src/core/search/hybrid.ts`;
+the two lists are merged with Reciprocal Rank Fusion.
 
-One optional shortcut sits in front of all of this: a **semantic query cache**
-(off by default). Ask the same thing a second time — or a close paraphrase — and
-Memrain recognizes the two queries *mean* the same (their fingerprints nearly
-match) and returns the cached result instead of paying for the whole pipeline
-again.
+One optional shortcut sits in front of all of this: a cache that recognises a
+question you asked before, or a close paraphrase, and returns the earlier
+result instead of searching again. It is off by default.
 
 ## 3. Where the money goes
 
@@ -75,6 +79,11 @@ The dominant variable cost is **`MEMRAIN_GRAPH_RERANK`** — a paid Sonnet call 
 fixed infrastructure floor: one small EC2 instance + one RDS Postgres +
 networking/secrets. See [CONFIGURATION.md](./CONFIGURATION.md#quality--cost-tiers-pick-one)
 for the Free / Balanced / Max tiers and how to pick one.
+
+The tier that `scripts/init.sh` picks (Balanced or Max turn `MEMRAIN_RERANK` on)
+is written only to your local `.env`. A Terraform host runs the free tier until
+you copy that block into the host's `.env`; see
+[DEPLOYMENT.md](./DEPLOYMENT.md).
 
 ## 4. Why run LLMs *inside* the brain at all?
 
@@ -96,8 +105,8 @@ reasons — and neither is "chatting with the user":
   of what you write, as you write it, and keeps them tidy: names are matched back
   to the right page instead of spawning duplicates, and a superseded claim is
   retired when a newer one lands. You can also *declare* facts yourself in a
-  `## Facts` block on a page — that block is a **fence**: those claims are yours,
-  and the brain won't quietly drop them even as it prunes its own.
+  `## Facts` block on a page — those claims are yours, and the brain won't quietly
+  drop them even as it prunes its own.
 - **Reflections, then patterns** — over your recent sessions the brain writes short
   **reflections** (what happened, what was decided), then makes a second pass that
   reads across many reflections and surfaces the **patterns** — themes that keep
@@ -119,16 +128,15 @@ retrieved.
 
 ## 5. One brain, scoped credentials — for one person or a team
 
-A blind clone is single-user out of the box, and that is still the common case.
+A fresh install serves one person, and that is still the common case.
 What makes more than one person possible is that **nothing trusts the caller**:
 every remote credential (OAuth client or PAT) carries a write source and a
 `federated_read` set, and reads and writes are confined to that grant. A leaked
 app token never exposes the whole brain. Operational tools (`stats`, `advisor`,
 the job queue) are operator-only regardless.
 
-A **source** is the unit of separation: one per person, and the fences —
-search, page reads, the write fence, tag existence checks, even the corpus
-counters — all key off the caller's grant.
+A **source** is the unit of separation, one per person. Search, page reads,
+writes, tag checks and even the page counters all follow the caller's grant.
 
 Where the grant comes from is the part worth knowing:
 
@@ -138,9 +146,9 @@ Where the grant comes from is the part worth knowing:
   at `/authorize`; that single authorisation is pinned to their source and the
   refresh token carries the pin. One connector, many people, separate tenants.
 
-That second path exists because a corporate chat vendor publishes a connector
-once for a whole organisation — only an Owner can add it, and everyone
-authorises against that same client. See
+That second path exists because Claude Team and Enterprise let only an Owner
+add a connector, once, for the whole organisation, and everyone authorises
+against that same client. See
 [CONFIGURATION.md](./CONFIGURATION.md#connecting-a-whole-team-through-one-connector).
 
 ## 6. The shape (and why)
@@ -163,8 +171,8 @@ documents, and (during quiet hours) runs the synthesis layer — distilling take
 writing reflections, and mining the patterns across them. It's careful not to
 waste effort: editing one line of a page re-embeds only the chunk that changed,
 not the whole document, and it won't turn its own reflections and patterns back
-into raw input for another pass. No cron babysitting — the brain keeps itself
-current.
+into raw input for another pass. You don't schedule anything; Memrain keeps
+itself current.
 
 And it can check its own work. An opt-in nightly **eval probe** (runs only
 after you install and enable `memrain-eval-probe.timer` from `deploy/systemd`)
@@ -173,7 +181,7 @@ retrieval was, so quality drift shows up as a trend you can read
 (`memrain doctor`) rather than a surprise. It runs under a spend ceiling, so the
 self-check can't run up a bill.
 
-## 8. The tools
+## 8. Under the hood: the tools
 
 Memrain's MCP tools are declared in `deploy/memrain/src/mcp/operations.ts`; the
 table below groups all of them. Each carries MCP `annotations` derived from its

@@ -1,5 +1,16 @@
 # ARCHITECTURE.md
 
+This page shows what runs where: the AWS resources, the containers, and how a
+request reaches Memrain. It is for people who run, change or review the
+infrastructure. To install Memrain, start with
+[docs/QUICKSTART.md](./docs/QUICKSTART.md); for a plain tour of how it answers
+a question, read [docs/HOW-IT-WORKS.md](./docs/HOW-IT-WORKS.md).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg">
+  <img src="docs/assets/architecture-light.svg" alt="AI agents reach Memrain through a Cloudflare Tunnel or Caddy; inside your AWS account one EC2 instance runs the memrain container and one ingress container (cloudflared or Caddy) and uses RDS Postgres with pgvector, Amazon Bedrock, EFS, Secrets Manager, and backups." width="100%">
+</picture>
+
 > Source-of-truth diagram + inventory for the `memrain` stack.
 > Updated alongside every terraform / compose / systemd change.
 
@@ -290,7 +301,8 @@ The boot flow (cold start from a new instance):
   embeddings; Claude Haiku is the utility model (intent classification +
   query expansion); the opt-in, default-OFF synthesis + facts slices use
   Claude Sonnet. Answer synthesis is the MCP client's job. The
-  deterministic core costs ~$25-30/mo even with daily use; the paid LLM
+  deterministic core costs about $52/mo in infrastructure (see
+  [docs/CONFIGURATION.md](./docs/CONFIGURATION.md)) even with daily use; the paid LLM
   slices only spend when explicitly enabled.
 - **MCP only, no agent framework.** Memrain speaks plain MCP JSON-RPC and
   nothing else — no chat surface, no bot, no bespoke API. One contract.

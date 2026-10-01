@@ -1,5 +1,9 @@
 # Connect Codex
 
+At the end, the Codex CLI can search your Memrain memory and write to it. You
+need a running Memrain server, a shell on its host to run a few `memrain`
+commands, and the Codex CLI installed.
+
 The Codex CLI reaches Memrain as a streamable HTTP MCP server at `<issuer>/mcp`,
 where `<issuer>` is your public origin, for example `https://brain.<domain>`.
 It can authenticate with:

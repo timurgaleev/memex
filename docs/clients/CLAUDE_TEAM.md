@@ -1,5 +1,10 @@
 # Connect a Claude Team or Enterprise organisation
 
+At the end, every member of your organisation can search Memrain from Claude
+and write to it, each in their own space. You need a running Memrain server, a
+shell on its host, and an Owner of the Claude organisation to add the
+connector.
+
 On a Team or Enterprise plan only an Owner adds a custom connector, once, for
 the whole organisation, and every member then connects to that same client. To
 keep each member in their own space, register the client in **enrollment
@@ -80,7 +85,7 @@ enrollment action except `invalidate-tokens` is also on the admin panel:
 Send each code person to person, never into a shared channel. A code is a
 bearer credential until it is used.
 
-## Day-2
+## Manage members later
 
 | Task | Command | Admin panel |
 |---|---|---|

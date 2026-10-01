@@ -5,7 +5,7 @@
 
 ## What this repo is
 
-Self-hostable personal knowledge brain, reached over MCP only:
+Self-hosted long-term memory for AI agents, reached over MCP only:
 - **Memrain** — knowledge brain (Bun + Postgres + pgvector). Hybrid
   search + graph-signals ranking, entity + code call graph
   (callers/callees), push-context, advisor; every MCP tool is declared in
@@ -47,13 +47,15 @@ Both run as Docker Compose services on a single `t4g.medium` EC2.
 | Explicitly deferred work + when to pick it up | `TODO.md` |
 | How to behave inside this repo (build / test / commit) | `AGENTS.md` |
 | Memrain subsystem deep-dive | `deploy/memrain/docs/{ARCHITECTURE,API,OPERATIONS,README}.md` |
-| Onboarding (`make init` flow) | `README.md` |
+| What Memrain is, who it is for, what it costs (short product page) | `README.md` |
+| Onboarding (`make init` flow), local try-out, credentials, day-to-day operation | `docs/QUICKSTART.md` |
 | Every env knob, with cost tier | `docs/CONFIGURATION.md` |
-| Connecting a client (Claude Code, Codex, claude.ai, ChatGPT) | `docs/clients/*.md` |
+| Connecting a client (Claude Code, Codex, claude.ai, Claude Team/Enterprise, ChatGPT) | `docs/clients/*.md` |
 | One connector for a team, enrollment codes | `docs/TEAM-SETUP.md` |
 | Install / ingress modes / upgrade | `docs/DEPLOYMENT.md` |
 | Upgrading an install from before the rename | `UPGRADING.md` |
 | Plain-language tour of the pipeline | `docs/HOW-IT-WORKS.md` |
+| Local checks and test commands for contributors | `CONTRIBUTING.md` |
 
 ## Source code map
 

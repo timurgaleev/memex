@@ -1,5 +1,11 @@
 # Upgrading to Memrain 1.0
 
+This page is only for people who already run a release from before Memrain 1.0,
+under the project's old name. It moves that install to 1.0 and keeps your
+data. Installing for the first time? You do not need this page: start with
+[docs/QUICKSTART.md](./docs/QUICKSTART.md), and read
+[docs/HOW-IT-WORKS.md](./docs/HOW-IT-WORKS.md) to see how Memrain works.
+
 Memrain was called memex before 1.0.0. This guide takes an install of a
 pre-rename release (tags `memex-v1.x`) to Memrain 1.0.x without losing data.
 Clients need no change: the URL, the OAuth issuer, the public bearer, PATs,

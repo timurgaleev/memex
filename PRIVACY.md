@@ -1,13 +1,16 @@
 # Memrain — Privacy Policy
 
 **Effective:** see git history of this file
-**Operator:** `<MAINTAINER>` — `<your-email>`
-**Service:** Memrain — a personal AI assistant deployed for one
-user only.
+**Operator:** you, the person running this install — `<your-email>`
+**Service:** Memrain, a self-hosted memory server for AI agents.
 
-This stack is a single-user system. The operator (above) is the only
-authorized user. There are no public sign-ups, no multi-tenant access,
-and no marketing list.
+This policy covers the open-source Memrain software that you install and run
+yourself, in your own AWS account. A hosted offer, when it exists, will publish
+its own terms.
+
+Access is limited to the operator and to the sources and clients the operator
+creates (see docs/TEAM-SETUP.md). There are no public sign-ups and no
+marketing list.
 
 ## What data the app touches
 
@@ -40,13 +43,16 @@ configured region:
   AWS; Amazon's standard Bedrock data-handling terms apply (no model
   training on customer prompts).
 
-No data leaves AWS. There are no analytics SDKs, no advertising
+Stored data stays in your AWS account. Query results go to the MCP client you
+connect, and with the default Cloudflare Tunnel, requests pass through
+Cloudflare. There are no analytics SDKs, no advertising
 trackers, no third-party SaaS observability, and no telemetry beyond
 CloudWatch logs scoped to the operator's account.
 
 ## Who can access the data
 
-Only the operator. Access is gated behind:
+The operator, and the people the operator gives a credential. Access is gated
+behind:
 
 - AWS IAM policies scoped to the operator's account.
 - A bearer token for the public read API at

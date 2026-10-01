@@ -1,5 +1,11 @@
 # Deployment — zero to live
 
+This page is the long, step-by-step path to running Memrain in your own AWS
+account, with every setting and check explained. Read it when you want to know
+exactly what each step does, or when something in the install goes wrong. The
+short path is [QUICKSTART.md](./QUICKSTART.md); new to Memrain? Read
+[HOW-IT-WORKS.md](./HOW-IT-WORKS.md) first.
+
 A linear self-host guide: from an empty AWS account to a running MCP retrieval
 brain your Claude Code (or any MCP client) can query at
 `https://<subdomain>.<domain>/mcp`.

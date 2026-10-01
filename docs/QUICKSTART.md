@@ -1,7 +1,9 @@
 # Quickstart
 
-Install Memrain in your own AWS account, connect your AI agent, and run it day
-to day. For what Memrain is and why you would use it, start with the
+This page takes you from an empty AWS account to an AI agent that searches your
+notes.
+It also covers running Memrain on your laptop, choosing a credential, and
+day-to-day operation. For what Memrain is and why you would use it, start with the
 [README](../README.md).
 
 ## Install with Terraform (recommended)
@@ -15,10 +17,11 @@ EIP that you create yourself). Docker is not needed locally; bootstrap installs
 it on the host.
 
 **1. Fork and clone the repo.** Fork it to your GitHub account and keep the
-fork public (for a private fork, answer `true` to the SSH deploy key prompt in
-`make init` and set `repo_url` in `terraform/terraform.tfvars` to
-`git@github.com:<owner>/<repo>.git`): the instance clones `<owner>/<repo>` from the answers you give
-`make init` over anonymous HTTPS, and first boot fails if that repo is missing.
+fork public. On first boot the instance clones your fork (`<owner>/<repo>` from
+your `make init` answers) over anonymous HTTPS, so a missing or private repo
+makes boot fail. For a private fork, answer `true` to the SSH deploy key prompt
+in `make init` and set `repo_url = "git@github.com:<owner>/<repo>.git"` in
+`terraform/terraform.tfvars`.
 
 ```bash
 git clone https://github.com/<your-github-username>/memrain.git && cd memrain
@@ -62,12 +65,16 @@ sudo docker compose --env-file .env up -d cloudflared
 **6. Submit the Bedrock Anthropic use-case form** once in the AWS console.
 Without it every Claude call fails.
 
-**7. Index your vault** (in an SSM session on the host). `/memory` is the EFS
-`workspace/memory` tree, empty on a fresh install: copy your markdown to
-`/mnt/<project>-efs/<project>/workspace/memory` on the host first, or write
-through MCP with `page_put` using a PAT or OAuth client with write scope (the
-public bearer from step 9 cannot write by default) (see
-[docs/DEPLOYMENT.md](./DEPLOYMENT.md) section 7).
+**7. Add your notes.** The notes folder is empty on a fresh install. Either:
+
+- copy your markdown to `/mnt/<project>-efs/<project>/workspace/memory` on the
+  host (it is `/memory` inside the container), then index it in an SSM session
+  with the command below; or
+- write notes through MCP with `page_put`, using a personal access token or an
+  OAuth client with write scope. The public bearer from step 9 cannot write by
+  default.
+
+Details are in [DEPLOYMENT.md](./DEPLOYMENT.md) section 7.
 
 ```bash
 sudo docker exec deploy-memrain-1 bun run src/cli.ts reindex --source vault --vault /memory
@@ -91,8 +98,11 @@ claude mcp add --transport http memrain https://<subdomain>.<domain>/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
-<details>
-<summary>Try it locally (no servers; needs AWS credentials with Bedrock Titan access)</summary>
+## Try it locally
+
+Run Memrain on your laptop with an embedded database and no servers. You still
+need AWS credentials with Bedrock Titan access, because every note is embedded
+before it is stored.
 
 ```bash
 cd deploy/memrain
@@ -140,7 +150,6 @@ after you link it yourself (for example with `bun link`).
   Without AWS credentials with Titan access, `index` and `reindex` fail on every
   file and nothing becomes searchable.
 
-</details>
 
 Everything else (Caddy ingress, secrets, updates, verification) is in
 [docs/DEPLOYMENT.md](./DEPLOYMENT.md).

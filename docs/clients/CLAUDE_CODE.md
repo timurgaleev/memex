@@ -1,5 +1,9 @@
 # Connect Claude Code
 
+At the end, Claude Code can search your Memrain memory and write to it, in
+every project on your machine. You need a running Memrain server and a shell on
+its host to run a few `memrain` commands.
+
 Claude Code talks to Memrain over HTTP at `<issuer>/mcp`, where `<issuer>` is
 your public origin, for example `https://brain.<domain>`. It can authenticate
 two ways:

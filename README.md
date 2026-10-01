@@ -16,7 +16,7 @@ Your notes, decisions and code, searchable from Claude, ChatGPT and Codex, with 
 **For developers and small teams who work with AI agents every day.** Memrain is
 free and open source (MIT). It runs in your own AWS account, so you pay only your
 AWS bill: about $52 a month for the server and database, plus model usage if you
-turn on the paid features.
+turn on the paid features. **To start, follow [docs/QUICKSTART.md](./docs/QUICKSTART.md).**
 
 ## Why
 
@@ -31,13 +31,13 @@ search it. Each result points to the exact page it came from.
 
 | | |
 |---|---|
-| <img src="docs/assets/feature-memory.webp" alt="An answer card linked by a thread to the highlighted line of the note it came from." width="260"> | **Answers you can check.** Ask "what did we decide about the auth flow?" and get the passages from your own notes, each with its page and line. Your agent writes the answer; Memrain supplies the evidence. |
+| <img src="docs/assets/feature-memory.webp" alt="An answer card linked by a thread to the highlighted line of the note it came from." width="260"> | **Answers you can check.** Ask "what did we decide about the auth flow?" and get the passages from your own notes, each with the page it came from. Your agent writes the answer; Memrain supplies the evidence. |
 | <img src="docs/assets/feature-code.webp" alt="One highlighted function in a code file, with lines fanning out to the files that call it." width="260"> | **It understands your code.** Who calls this function, what breaks if I change it, where is it defined: for TypeScript, Python and Go. Bash and SQL files are searchable too. |
 | <img src="docs/assets/feature-team.webp" alt="One filing cabinet with three locked drawers in different colours, each with its own key." width="260"> | **One memory for the team, a private space for each person.** One connector for everybody, a separate source per person, a daily spending cap, and access you can revoke one person at a time. |
 
 It also keeps facts and timelines, imports your ChatGPT and Claude history,
-keeps a version history for every page, and redacts API keys and passwords
-before anything is stored.
+keeps a version history for every page, and redacts API keys, tokens, private keys
+and database passwords before anything is stored.
 
 ## See it work
 
@@ -52,15 +52,18 @@ before anything is stored.
   <img src="docs/assets/how-it-works-light.svg" alt="Five steps: your notes, code and chats; Memrain reads them; stored in your Postgres database; search by meaning and by words; your AI agent answers with sources." width="100%">
 </picture>
 
-Memrain does the remembering, not the talking. It returns ranked passages with
+Memrain does the remembering, not the talking (the opt-in `think` tool is the
+one exception). It returns ranked passages with
 their sources, and your agent writes the answer from them. A search costs one
 embedding call and no chat-model call by default. The full pipeline is in
 [docs/HOW-IT-WORKS.md](./docs/HOW-IT-WORKS.md).
 
 ## Get started
 
-**Self-host (free).** You need an AWS account with Bedrock access, Terraform, the
-AWS CLI and a domain on Cloudflare. Then:
+**Self-host (free software; you pay your AWS bill).** You need an AWS account
+with Bedrock access, Terraform, the AWS CLI, an S3 bucket for Terraform state,
+and a domain on Cloudflare (or on Route53, with the Caddy option). Fork the repo
+to your GitHub account, then:
 
 ```bash
 git clone https://github.com/<your-github-username>/memrain.git && cd memrain
@@ -72,10 +75,10 @@ The full walkthrough, from the tunnel token to your first search, is in
 [docs/QUICKSTART.md](./docs/QUICKSTART.md).
 
 **Try it on your laptop.** No servers, one embedded database. You still need AWS
-credentials for the embeddings. See "Try it locally" in
-[docs/QUICKSTART.md](./docs/QUICKSTART.md).
+credentials for the embeddings. See
+[Try it locally](./docs/QUICKSTART.md#try-it-locally).
 
-**Hosted.** A hosted version, so you do not have to run AWS yourself, is planned.
+**Hosted.** A hosted version, so you do not have to run AWS yourself, is planned. It is not available yet.
 
 ## Connect your agent
 
@@ -91,15 +94,15 @@ Every client uses the same `https://<your-host>/mcp` address.
 
 ## Security and privacy
 
-- **Your data stays in your AWS account.** Notes, index and database live there. Only what an agent retrieves goes to that agent's model. No telemetry.
-- **Secrets are stripped on the way in.** Pasted AWS keys, API tokens and private keys are redacted before they are stored or embedded.
+- **Your data stays in your AWS account.** Notes, index and database live there. Only what an agent retrieves goes to that agent's model; with the default Cloudflare Tunnel, that traffic passes through Cloudflare. No telemetry.
+- **Secrets are stripped on the way in.** Pasted AWS keys, API tokens, private keys and database passwords are redacted before they are stored or embedded.
 - **Every person has their own key.** Personal tokens and OAuth sign-in, scoped per person, each with an optional daily cap. Details in [docs/TEAM-SETUP.md](./docs/TEAM-SETUP.md).
 
 To report a vulnerability, see [SECURITY.md](./SECURITY.md).
 
 ## When Memrain is not the right fit
 
-- You do not want to run anything in AWS. The hosted version is not available yet.
+- You do not want to run anything in AWS. A hosted version is planned; it is not available yet.
 - You want a chat app. Memrain is the memory behind your agent, not a chat window.
 
 ## Documentation

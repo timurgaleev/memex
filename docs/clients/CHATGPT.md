@@ -1,5 +1,12 @@
 # Connect ChatGPT
 
+At the end, ChatGPT can search your Memrain memory and write to it; ChatGPT
+asks you to confirm write actions. You need a running Memrain server, a shell on its host
+to register a client, and a ChatGPT plan with developer mode, or a Business or
+Enterprise workspace whose admin can publish an app. For anyone but the
+operator in developer mode, the admin login gate must be off or the client must
+use enrollment mode.
+
 ChatGPT reaches Memrain as a remote MCP server in two ways:
 
 - **Developer mode**, where a person creates an app for their own account;
@@ -27,7 +34,7 @@ unchanged and so are its credentials. Renaming its display name is optional.
   memrain sources register alice --kind other --path-prefix tenant:alice
   ```
 
-## The callback
+## Pick the callback URL
 
 Memrain returns `iss` on every authorization response and advertises
 `authorization_response_iss_parameter_supported: true`. OpenAI documents that
@@ -37,7 +44,7 @@ a per-connection `https://chatgpt.com/connector/oauth/{callback_id}`. Register
 the stable one. If the browser ever reports the per-connection form, add that
 exact URL with `memrain auth set-redirect-uris`.
 
-## One person (developer mode)
+## Connect one person (developer mode)
 
 1. Register a confidential client bound to the person's source:
 
@@ -63,7 +70,7 @@ With `MEMRAIN_OAUTH_REQUIRE_LOGIN=1` the browser is sent to `/admin/login` first
 which only the operator can pass. For anyone else, turn the flag off or use
 enrollment mode as below.
 
-## A Business or Enterprise workspace
+## Connect a Business or Enterprise workspace
 
 One app serves the whole workspace, so bind each person at sign-in with
 enrollment codes, exactly as for a Claude organisation:
@@ -85,7 +92,7 @@ it; members then connect and paste their code. OpenAI's guide confirms
 developer mode on Business and Enterprise; the exact admin menu names
 (workspace settings for permissions, then the apps list to publish) come from
 third-party write-ups and are **unverified**. Day-2 commands are the same as
-for Claude: see [CLAUDE_TEAM.md](./CLAUDE_TEAM.md#day-2).
+for Claude: see [CLAUDE_TEAM.md](./CLAUDE_TEAM.md#manage-members-later).
 
 ## Which tools ChatGPT sees
 

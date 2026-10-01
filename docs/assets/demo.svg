@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 372" width="760" height="372"
      font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
      role="img"
-     aria-label="Terminal demo: your AI agent asks 'what did I decide about the auth approach', calls memrain.search, gets 3 cited chunks from your own notes (decisions/auth-approach.md:12, notes/mcp-security.md:31), and answers: you chose a bearer token over MCP, not OAuth.">
+     aria-label="Terminal demo: your AI agent asks 'what did I decide about the auth approach', calls memrain.search, gets 3 cited chunks from your own notes (decisions/auth-approach.md, notes/mcp-security.md), and answers: you chose a bearer token over MCP, not OAuth.">
   <!-- window -->
   <rect x="0" y="0" width="760" height="372" rx="12" fill="#0D1117" stroke="#1E2A44" stroke-width="1"/>
   <rect x="0" y="0" width="760" height="40" rx="12" fill="#161B22"/>
@@ -19,8 +19,8 @@
     <text x="24" y="142" fill="#93A7BE">  &#8594; 3 cited chunks from your own notes</text>
 
     <text x="24" y="180" fill="#5C6B82"># sources</text>
-    <text x="24" y="206" fill="#5BE3C0">  decisions/auth-approach.md<tspan fill="#5C6B82">:12</tspan></text>
-    <text x="24" y="232" fill="#5BE3C0">  notes/mcp-security.md<tspan fill="#5C6B82">:31</tspan></text>
+    <text x="24" y="206" fill="#5BE3C0">  decisions/auth-approach.md</text>
+    <text x="24" y="232" fill="#5BE3C0">  notes/mcp-security.md</text>
 
     <text x="24" y="276" fill="#C9A6FF">answer<tspan fill="#5C6B82">&#9474;</tspan> <tspan fill="#E8EEF6">You chose a bearer token over MCP, not OAuth &#8212;</tspan></text>
     <text x="24" y="300" fill="#E8EEF6">       "fewer moving parts for a single-user brain."</text>
