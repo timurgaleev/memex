@@ -196,4 +196,39 @@ describe("extractFactsForPage", () => {
     expect(calls()).toBe(0); // pre-flight guard skipped the paid call
     expect(r.factsWritten).toBe(0);
   });
+
+  it("default per-write budget affords the truncation retry for a full-window page", async () => {
+    // A page at the extractor's input window, cut at the 800-token cap: the
+    // retry must fit the DEFAULT per-write ceiling, or long pages lose facts.
+    let n = 0;
+    const fn: SonnetFn = async () => {
+      n += 1;
+      if (n === 1) {
+        return {
+          text: '{"facts": [{"fact": "prefers tea',
+          modelId: "eu.anthropic.claude-sonnet-4-6",
+          usage: { inputTokens: 4000, outputTokens: 800 },
+          stopReason: "max_tokens",
+        };
+      }
+      const ok = await fakeSonnet().fn({ system: "", user: "", maxTokens: 1600 });
+      return { ...ok, usage: { inputTokens: 4000, outputTokens: 900 } };
+    };
+    const saved = process.env["MEMRAIN_FACTS_WRITE_BUDGET_USD"];
+    delete process.env["MEMRAIN_FACTS_WRITE_BUDGET_USD"];
+    let r;
+    try {
+      r = await extractFactsForPage(storage, {
+        slug: "notes/long",
+        type: "note",
+        body: LONG_BODY,
+        sonnetFn: fn,
+        modelId: "eu.anthropic.claude-sonnet-4-6",
+      });
+    } finally {
+      if (saved !== undefined) process.env["MEMRAIN_FACTS_WRITE_BUDGET_USD"] = saved;
+    }
+    expect(n).toBe(2);
+    expect(r.factsWritten).toBe(1);
+  });
 });

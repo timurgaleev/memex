@@ -641,11 +641,12 @@ export function factsExtractionEnabled(
 }
 
 /** Per-write USD ceiling for one on-write extraction. Small — it prices a
- *  single page-body turn. MEMRAIN_FACTS_WRITE_BUDGET_USD overrides. */
+ *  single page-body turn plus its one truncation retry (a full-window Sonnet
+ *  page needs ~$0.06 for both). MEMRAIN_FACTS_WRITE_BUDGET_USD overrides. */
 function perWriteBudgetUsd(): number {
   const raw = (process.env["MEMRAIN_FACTS_WRITE_BUDGET_USD"] ?? "").trim();
   const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : 0.05;
+  return Number.isFinite(n) && n > 0 ? n : 0.08;
 }
 
 /** Conservative worst-case usage for the pre-flight budget guard (mirrors the

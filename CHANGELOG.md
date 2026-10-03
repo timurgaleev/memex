@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.6] — 2026-10-03
+
+### Fixed
+- Fact extraction on a page write now gets its one retry when the model's
+  answer is cut off. The per-write budget (`MEMRAIN_FACTS_WRITE_BUDGET_USD`,
+  now `0.08`, was `0.05`; it also caps on-demand `extract_facts` calls) was too small for the retry on a long page, so the
+  facts on that page were silently lost. Normal writes cost the same: the
+  setting is a ceiling, not a charge.
+
 ## [1.0.5] — 2026-10-01
 
 ### Changed
